@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PluginManager } from '@core/plugins/plugin-manager';
 import type { IScraper, ScrapeOptions, ScrapeResult } from '@nx-scraper/shared/types/scraper.interface';
 
+vi.mock('@nx-scraper/shared', () => ({
+    logger: {
+        info: vi.fn(),
+        error: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+    },
+}));
+
 describe('PluginManager', () => {
     let pluginManager: PluginManager;
     let mockScraper1: IScraper;
@@ -35,7 +44,7 @@ describe('PluginManager', () => {
 
     describe('register', () => {
         it('should register a scraper successfully', () => {
-            pluginManager.register(mockScraper1);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
 
             const scrapers = pluginManager.getAll();
             expect(scrapers).toHaveLength(1);
@@ -43,8 +52,8 @@ describe('PluginManager', () => {
         });
 
         it('should register multiple scrapers', () => {
-            pluginManager.register(mockScraper1);
-            pluginManager.register(mockScraper2);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
+            pluginManager.register(mockScraper2, 'path/to/s2', 'Scraper2');
 
             const scrapers = pluginManager.getAll();
             expect(scrapers).toHaveLength(2);
@@ -53,8 +62,8 @@ describe('PluginManager', () => {
         it('should overwrite scraper with same name', () => {
             const updatedScraper = { ...mockScraper1, version: '1.1.0' };
 
-            pluginManager.register(mockScraper1);
-            pluginManager.register(updatedScraper);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
+            pluginManager.register(updatedScraper, 'path/to/s1', 'Scraper1');
 
             const scrapers = pluginManager.getAll();
             expect(scrapers).toHaveLength(1);
@@ -64,7 +73,7 @@ describe('PluginManager', () => {
 
     describe('unregister', () => {
         it('should remove a registered scraper', () => {
-            pluginManager.register(mockScraper1);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
 
             const result = pluginManager.unregister('test-scraper-1');
 
@@ -79,8 +88,8 @@ describe('PluginManager', () => {
         });
 
         it('should not affect other scrapers', () => {
-            pluginManager.register(mockScraper1);
-            pluginManager.register(mockScraper2);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
+            pluginManager.register(mockScraper2, 'path/to/s2', 'Scraper2');
 
             pluginManager.unregister('test-scraper-1');
 
@@ -96,8 +105,8 @@ describe('PluginManager', () => {
         });
 
         it('should return all registered scrapers', () => {
-            pluginManager.register(mockScraper1);
-            pluginManager.register(mockScraper2);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
+            pluginManager.register(mockScraper2, 'path/to/s2', 'Scraper2');
 
             const scrapers = pluginManager.getAll();
             expect(scrapers).toHaveLength(2);
@@ -108,8 +117,8 @@ describe('PluginManager', () => {
 
     describe('getScraperByName', () => {
         beforeEach(() => {
-            pluginManager.register(mockScraper1);
-            pluginManager.register(mockScraper2);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
+            pluginManager.register(mockScraper2, 'path/to/s2', 'Scraper2');
         });
 
         it('should return scraper by exact name', () => {
@@ -130,8 +139,8 @@ describe('PluginManager', () => {
 
     describe('findBestScraper', () => {
         beforeEach(() => {
-            pluginManager.register(mockScraper1);
-            pluginManager.register(mockScraper2);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
+            pluginManager.register(mockScraper2, 'path/to/s2', 'Scraper2');
         });
 
         it('should return scraper with highest confidence score', async () => {
@@ -191,8 +200,8 @@ describe('PluginManager', () => {
         };
 
         beforeEach(() => {
-            pluginManager.register(mockScraper1);
-            pluginManager.register(mockScraper2);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
+            pluginManager.register(mockScraper2, 'path/to/s2', 'Scraper2');
         });
 
         it('should execute scrape with best matched scraper', async () => {
@@ -238,8 +247,8 @@ describe('PluginManager', () => {
 
     describe('healthCheck', () => {
         it('should return health status for all scrapers', async () => {
-            pluginManager.register(mockScraper1);
-            pluginManager.register(mockScraper2);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
+            pluginManager.register(mockScraper2, 'path/to/s2', 'Scraper2');
 
             vi.mocked(mockScraper1.healthCheck).mockResolvedValue(true);
             vi.mocked(mockScraper2.healthCheck).mockResolvedValue(true);
@@ -253,8 +262,8 @@ describe('PluginManager', () => {
         });
 
         it('should handle failing health checks', async () => {
-            pluginManager.register(mockScraper1);
-            pluginManager.register(mockScraper2);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
+            pluginManager.register(mockScraper2, 'path/to/s2', 'Scraper2');
 
             vi.mocked(mockScraper1.healthCheck).mockResolvedValue(false);
             vi.mocked(mockScraper2.healthCheck).mockResolvedValue(true);
@@ -268,7 +277,7 @@ describe('PluginManager', () => {
         });
 
         it('should mark scraper as unhealthy if healthCheck throws', async () => {
-            pluginManager.register(mockScraper1);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
 
             vi.mocked(mockScraper1.healthCheck).mockRejectedValue(new Error('Health check error'));
 
@@ -291,13 +300,13 @@ describe('PluginManager', () => {
                 name: 'test-scraper-@#$%'
             };
 
-            pluginManager.register(specialScraper);
+            pluginManager.register(specialScraper, 'path/to/s3', 'ScraperSpecial');
 
             expect(pluginManager.getScraperByName('test-scraper-@#$%')).toBe(specialScraper);
         });
 
         it('should handle concurrent scrape operations', async () => {
-            pluginManager.register(mockScraper1);
+            pluginManager.register(mockScraper1, 'path/to/s1', 'Scraper1');
 
             vi.mocked(mockScraper1.canHandle).mockResolvedValue(0.9);
             vi.mocked(mockScraper1.scrape).mockResolvedValue({

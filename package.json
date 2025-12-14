@@ -24,6 +24,14 @@
         "inflight": "^1.0.6",
         "swagger-jsdoc": {
             "glob": "^10.4.5"
+        },
+        "puppeteer-extra-plugin-user-preferences": {
+            "puppeteer-extra-plugin-user-data-dir": {
+                "rimraf": "^5.0.0"
+            }
+        },
+        "puppeteer-extra-plugin-user-data-dir": {
+            "rimraf": "^5.0.0"
         }
     }
 }

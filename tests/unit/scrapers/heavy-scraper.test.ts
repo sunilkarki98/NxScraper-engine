@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => {
             content: vi.fn(),
             title: vi.fn(),
             waitForSelector: vi.fn(),
-            close: vi.fn()
+            close: vi.fn(),
+            viewport: vi.fn().mockReturnValue({ width: 1920, height: 1080 }),
+            viewportSize: vi.fn().mockReturnValue({ width: 1920, height: 1080 })
         },
         browserPool: {
             acquirePage: vi.fn(),
@@ -27,19 +29,19 @@ const mocks = vi.hoisted(() => {
 });
 
 // Mock dependencies
-vi.mock('@nx-scraper/shared/browser/pool.js', () => ({
-    browserPool: mocks.browserPool
-}));
-
-vi.mock('@nx-scraper/shared/browser/evasion/ghost-cursor.js', () => ({
-    ghostCursor: mocks.ghostCursor
-}));
-
-vi.mock('@nx-scraper/shared/utils/html-parser.js', () => ({
+vi.mock('@nx-scraper/shared', () => ({
+    browserPool: mocks.browserPool,
+    ghostCursor: mocks.ghostCursor,
     HtmlParser: class {
         constructor() {
             return mocks.htmlParser;
         }
+    },
+    logger: {
+        info: vi.fn(),
+        debug: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn()
     }
 }));
 
@@ -87,7 +89,7 @@ describe('HeavyScraper', () => {
 
             // Flow verification
             expect(mocks.browserPool.acquirePage).toHaveBeenCalledWith(expect.objectContaining({
-                engine: 'puppeteer',
+                engine: 'playwright',
                 stealth: true
             }));
             expect(mocks.page.goto).toHaveBeenCalledWith(options.url, expect.any(Object));

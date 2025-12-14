@@ -53,6 +53,17 @@ vi.mock('../../../packages/shared/src/utils/logger.js', () => ({
     default: mocks.logger
 }));
 
+vi.mock('../../../packages/shared/src/utils/env-validator.js', () => ({
+    env: new Proxy({}, {
+        get: (target, prop) => {
+            if (prop === 'DRAGONFLY_URL') return process.env.DRAGONFLY_URL || 'redis://localhost:6379';
+            return undefined;
+        }
+    }),
+    validateEnvironment: vi.fn(),
+    getEnv: vi.fn()
+}));
+
 describe('QueueManager', () => {
     // We can't really "reset" the exported singleton easily without reloading modules
     // So we will instantiate a new class for testing if export allows or use the singleton
