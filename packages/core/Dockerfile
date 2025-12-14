@@ -9,7 +9,7 @@
 ###############################################
 # Stage 1: Base image
 ###############################################
-FROM node:24-bullseye-slim AS base
+FROM node:24-bookworm-slim AS base
 WORKDIR /app
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
