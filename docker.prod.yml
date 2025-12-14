@@ -1,4 +1,4 @@
-version: '3.9'
+
 
 #############################
 # VOLUMES
@@ -103,7 +103,7 @@ services:
       dockerfile: packages/core/Dockerfile
       target: worker
     image: nxscraper-worker:prod
-    container_name: scrapex-worker
+
     restart: always
     env_file:
       - .env
