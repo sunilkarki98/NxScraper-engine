@@ -1,33 +1,46 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { AIController } from '@core/api/controllers/ai.controller';
 import { createMockRequest, createMockResponse } from '../../utils/test-helpers';
 
-// Mock AI engine with correct structure
-const mockPageUnderstanding = { execute: vi.fn() };
-const mockSelectorGeneration = { execute: vi.fn() };
-const mockSchemaInference = { execute: vi.fn() };
-const mockStrategyPlanning = { execute: vi.fn() };
-const mockAntiBlocking = { execute: vi.fn() };
-const mockDataValidation = { execute: vi.fn() };
-
-const mockAIEngine = {
-    runPipeline: vi.fn(),
-    pageUnderstanding: mockPageUnderstanding,
-    selectorGeneration: mockSelectorGeneration,
-    schemaInference: mockSchemaInference,
-    strategyPlanning: mockStrategyPlanning,
-    antiBlocking: mockAntiBlocking,
-    dataValidation: mockDataValidation,
-    healthCheck: vi.fn(),
-    getStats: vi.fn(),
-    getCostStats: vi.fn(),
-    clearCache: vi.fn(),
-    resetCostTracking: vi.fn()
-};
-
 vi.mock('@nx-scraper/shared/ai/ai-engine', () => ({
-    getAIEngine: vi.fn(() => mockAIEngine)
+    getAIEngine: vi.fn(() => ({
+        runPipeline: vi.fn(),
+        pageUnderstanding: { execute: vi.fn() },
+        selectorGeneration: { execute: vi.fn() },
+        schemaInference: { execute: vi.fn() },
+        strategyPlanning: { execute: vi.fn() },
+        antiBlocking: { execute: vi.fn() },
+        dataValidation: { execute: vi.fn() },
+        healthCheck: vi.fn(),
+        getStats: vi.fn(),
+        getCostStats: vi.fn(),
+        clearCache: vi.fn(),
+        resetCostTracking: vi.fn()
+    }))
 }));
+
+// We need to get the mocked instance to spy on it in tests
+import { getAIEngine } from '@nx-scraper/shared/ai/ai-engine';
+const mockAIEngine = getAIEngine() as unknown as {
+    runPipeline: Mock;
+    pageUnderstanding: { execute: Mock };
+    selectorGeneration: { execute: Mock };
+    schemaInference: { execute: Mock };
+    strategyPlanning: { execute: Mock };
+    antiBlocking: { execute: Mock };
+    dataValidation: { execute: Mock };
+    healthCheck: Mock;
+    getStats: Mock;
+    getCostStats: Mock;
+    clearCache: Mock;
+    resetCostTracking: Mock;
+};
+const mockPageUnderstanding = mockAIEngine.pageUnderstanding;
+const mockSelectorGeneration = mockAIEngine.selectorGeneration;
+const mockSchemaInference = mockAIEngine.schemaInference;
+const mockStrategyPlanning = mockAIEngine.strategyPlanning;
+const mockAntiBlocking = mockAIEngine.antiBlocking;
+const mockDataValidation = mockAIEngine.dataValidation;
 
 describe('AIController', () => {
     let controller: AIController;

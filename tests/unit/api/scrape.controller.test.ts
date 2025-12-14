@@ -36,7 +36,8 @@ vi.mock('@nx-scraper/shared', () => ({
         warn: vi.fn(),
         error: vi.fn(),
         debug: vi.fn()
-    }
+    },
+    env: {} // Add missing env export
 }));
 
 // Mock crypto

@@ -47,6 +47,9 @@ jobs:
         run: |
           npm run lint --workspaces --if-present
       
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+
       - name: Run tests
         run: |
           npm test

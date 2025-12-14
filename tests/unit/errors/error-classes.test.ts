@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { toAppError, AppError, ValidationError, ScraperError, NotFoundError } from '@nx-scraper/shared/types/errors.js';
+import { toAppError, AppError, ValidationError, ScraperError, NotFoundError } from '@nx-scraper/shared/types/errors';
 
 describe('Error Classes', () => {
     describe('AppError', () => {
@@ -13,7 +13,7 @@ describe('Error Classes', () => {
         });
 
         it('should default to 500 status code', () => {
-            const error = new AppError('Test', 'CODE');
+            const error = new AppError('Test', 'CODE', 500);
             expect(error.statusCode).toBe(500);
         });
     });
@@ -59,7 +59,7 @@ describe('Error Classes', () => {
 
     describe('toAppError', () => {
         it('should return AppError as-is', () => {
-            const appError = new AppError('Test', 'CODE');
+            const appError = new AppError('Test', 'CODE', 500);
             const result = toAppError(appError);
 
             expect(result).toBe(appError);
