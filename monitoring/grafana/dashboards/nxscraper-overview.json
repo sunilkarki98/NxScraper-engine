@@ -1,0 +1,226 @@
+{
+    "dashboard": {
+        "title": "NxScraper Engine - Overview",
+        "tags": [
+            "nxscraper",
+            "scraping",
+            "performance"
+        ],
+        "timezone": "browser",
+        "panels": [
+            {
+                "id": 1,
+                "title": "Scraper Status",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 0,
+                    "y": 0
+                },
+                "targets": [
+                    {
+                        "expr": "scraper_count",
+                        "refId": "A"
+                    }
+                ],
+                "options": {
+                    "colorMode": "value",
+                    "graphMode": "none",
+                    "text": {},
+                    "textMode": "auto"
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "short",
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "color": "red",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 1
+                                },
+                                {
+                                    "color": "green",
+                                    "value": 3
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "id": 2,
+                "title": "Active Browsers",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 6,
+                    "y": 0
+                },
+                "targets": [
+                    {
+                        "expr": "browser_pool_total",
+                        "refId": "A"
+                    }
+                ]
+            },
+            {
+                "id": 3,
+                "title": "Open Pages",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 12,
+                    "y": 0
+                },
+                "targets": [
+                    {
+                        "expr": "browser_pool_pages",
+                        "refId": "A"
+                    }
+                ]
+            },
+            {
+                "id": 4,
+                "title": "Active Proxies",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 18,
+                    "y": 0
+                },
+                "targets": [
+                    {
+                        "expr": "proxy_active",
+                        "refId": "A"
+                    }
+                ]
+            },
+            {
+                "id": 5,
+                "title": "Browser Pool Utilization",
+                "type": "timeseries",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 4
+                },
+                "targets": [
+                    {
+                        "expr": "browser_pool_total",
+                        "refId": "A",
+                        "legendFormat": "Total Browsers"
+                    },
+                    {
+                        "expr": "browser_pool_pages",
+                        "refId": "B",
+                        "legendFormat": "Open Pages"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "custom": {
+                            "drawStyle": "line",
+                            "lineInterpolation": "smooth"
+                        }
+                    }
+                }
+            },
+            {
+                "id": 6,
+                "title": "Cache Performance",
+                "type": "timeseries",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 4
+                },
+                "targets": [
+                    {
+                        "expr": "cache_size",
+                        "refId": "A",
+                        "legendFormat": "Cache Size"
+                    },
+                    {
+                        "expr": "cache_max_size",
+                        "refId": "B",
+                        "legendFormat": "Max Size"
+                    }
+                ]
+            },
+            {
+                "id": 7,
+                "title": "Proxy Status",
+                "type": "gauge",
+                "gridPos": {
+                    "h": 6,
+                    "w": 12,
+                    "x": 0,
+                    "y": 12
+                },
+                "targets": [
+                    {
+                        "expr": "proxy_active / proxy_total * 100",
+                        "refId": "A"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "min": 0,
+                        "max": 100,
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "color": "red",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 50
+                                },
+                                {
+                                    "color": "green",
+                                    "value": 80
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "id": 8,
+                "title": "System Health",
+                "type": "table",
+                "gridPos": {
+                    "h": 6,
+                    "w": 12,
+                    "x": 12,
+                    "y": 12
+                },
+                "targets": [
+                    {
+                        "expr": "up",
+                        "refId": "A",
+                        "format": "table",
+                        "instant": true
+                    }
+                ]
+            }
+        ],
+        "schemaVersion": 36,
+        "version": 1,
+        "refresh": "5s"
+    }
+}

@@ -1,0 +1,363 @@
+{
+    "dashboard": {
+        "id": null,
+        "uid": "ultrascraper-overview",
+        "title": "UltraScraper - System Overview",
+        "tags": [
+            "ultrascraper",
+            "metrics"
+        ],
+        "timezone": "browser",
+        "schemaVersion": 16,
+        "version": 0,
+        "refresh": "10s",
+        "panels": [
+            {
+                "id": 1,
+                "gridPos": {
+                    "x": 0,
+                    "y": 0,
+                    "w": 8,
+                    "h": 8
+                },
+                "type": "stat",
+                "title": "Total Scraping Jobs",
+                "targets": [
+                    {
+                        "expr": "sum(scraper_jobs_total)",
+                        "refId": "A"
+                    }
+                ],
+                "options": {
+                    "colorMode": "value",
+                    "graphMode": "area",
+                    "justifyMode": "auto",
+                    "orientation": "auto",
+                    "reduceOptions": {
+                        "values": false,
+                        "calcs": [
+                            "lastNotNull"
+                        ]
+                    }
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "thresholds"
+                        },
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "value": null,
+                                    "color": "green"
+                                },
+                                {
+                                    "value": 100,
+                                    "color": "yellow"
+                                },
+                                {
+                                    "value": 1000,
+                                    "color": "red"
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "id": 2,
+                "gridPos": {
+                    "x": 8,
+                    "y": 0,
+                    "w": 8,
+                    "h": 8
+                },
+                "type": "stat",
+                "title": "Success Rate",
+                "targets": [
+                    {
+                        "expr": "100 * sum(scraper_jobs_total{status=\"success\"}) / sum(scraper_jobs_total)",
+                        "refId": "A"
+                    }
+                ],
+                "options": {
+                    "colorMode": "value",
+                    "graphMode": "area",
+                    "justifyMode": "auto",
+                    "orientation": "auto",
+                    "reduceOptions": {
+                        "values": false,
+                        "calcs": [
+                            "lastNotNull"
+                        ]
+                    }
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "color": {
+                            "mode": "thresholds"
+                        },
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "value": null,
+                                    "color": "red"
+                                },
+                                {
+                                    "value": 70,
+                                    "color": "yellow"
+                                },
+                                {
+                                    "value": 90,
+                                    "color": "green"
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "id": 3,
+                "gridPos": {
+                    "x": 16,
+                    "y": 0,
+                    "w": 8,
+                    "h": 8
+                },
+                "type": "stat",
+                "title": "Cache Hit Rate",
+                "targets": [
+                    {
+                        "expr": "100 * sum(scraper_cache_hits_total) / (sum(scraper_cache_hits_total) + sum(scraper_cache_misses_total))",
+                        "refId": "A"
+                    }
+                ],
+                "options": {
+                    "colorMode": "value",
+                    "graphMode": "area",
+                    "justifyMode": "auto",
+                    "orientation": "auto",
+                    "reduceOptions": {
+                        "values": false,
+                        "calcs": [
+                            "lastNotNull"
+                        ]
+                    }
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "color": {
+                            "mode": "thresholds"
+                        },
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "value": null,
+                                    "color": "red"
+                                },
+                                {
+                                    "value": 50,
+                                    "color": "yellow"
+                                },
+                                {
+                                    "value": 80,
+                                    "color": "green"
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "id": 4,
+                "gridPos": {
+                    "x": 0,
+                    "y": 8,
+                    "w": 12,
+                    "h": 8
+                },
+                "type": "graph",
+                "title": "Scraping Jobs Over Time",
+                "targets": [
+                    {
+                        "expr": "rate(scraper_jobs_total{status=\"success\"}[5m])",
+                        "refId": "A",
+                        "legendFormat": "Success"
+                    },
+                    {
+                        "expr": "rate(scraper_jobs_total{status=\"failed\"}[5m])",
+                        "refId": "B",
+                        "legendFormat": "Failed"
+                    }
+                ],
+                "xaxis": {
+                    "mode": "time",
+                    "show": true
+                },
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "show": true
+                    },
+                    {
+                        "format": "short",
+                        "show": true
+                    }
+                ],
+                "lines": true,
+                "fill": 1,
+                "linewidth": 2,
+                "legend": {
+                    "show": true,
+                    "alignAsTable": true,
+                    "avg": true,
+                    "current": true
+                }
+            },
+            {
+                "id": 5,
+                "gridPos": {
+                    "x": 12,
+                    "y": 8,
+                    "w": 12,
+                    "h": 8
+                },
+                "type": "graph",
+                "title": "Job Duration (p99, p50)",
+                "targets": [
+                    {
+                        "expr": "histogram_quantile(0.99, rate(scraper_job_duration_seconds_bucket[5m]))",
+                        "refId": "A",
+                        "legendFormat": "p99"
+                    },
+                    {
+                        "expr": "histogram_quantile(0.50, rate(scraper_job_duration_seconds_bucket[5m]))",
+                        "refId": "B",
+                        "legendFormat": "p50"
+                    }
+                ],
+                "xaxis": {
+                    "mode": "time",
+                    "show": true
+                },
+                "yaxes": [
+                    {
+                        "format": "s",
+                        "show": true
+                    },
+                    {
+                        "format": "short",
+                        "show": true
+                    }
+                ],
+                "lines": true,
+                "fill": 1,
+                "linewidth": 2,
+                "legend": {
+                    "show": true,
+                    "alignAsTable": true,
+                    "avg": true,
+                    "current": true
+                }
+            },
+            {
+                "id": 6,
+                "gridPos": {
+                    "x": 0,
+                    "y": 16,
+                    "w": 12,
+                    "h": 8
+                },
+                "type": "stat",
+                "title": "Browser Pool Size",
+                "targets": [
+                    {
+                        "expr": "browser_pool_size",
+                        "refId": "A"
+                    }
+                ],
+                "options": {
+                    "colorMode": "value",
+                    "graphMode": "area",
+                    "justifyMode": "auto",
+                    "orientation": "auto",
+                    "reduceOptions": {
+                        "values": false,
+                        "calcs": [
+                            "lastNotNull"
+                        ]
+                    }
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "thresholds"
+                        },
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "value": null,
+                                    "color": "blue"
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "id": 7,
+                "gridPos": {
+                    "x": 12,
+                    "y": 16,
+                    "w": 12,
+                    "h": 8
+                },
+                "type": "graph",
+                "title": "Node.js Memory Usage",
+                "targets": [
+                    {
+                        "expr": "process_resident_memory_bytes / 1024 / 1024",
+                        "refId": "A",
+                        "legendFormat": "Resident Memory (MB)"
+                    },
+                    {
+                        "expr": "nodejs_heap_size_used_bytes / 1024 / 1024",
+                        "refId": "B",
+                        "legendFormat": "Heap Used (MB)"
+                    }
+                ],
+                "xaxis": {
+                    "mode": "time",
+                    "show": true
+                },
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "show": true,
+                        "label": "MB"
+                    },
+                    {
+                        "format": "short",
+                        "show": true
+                    }
+                ],
+                "lines": true,
+                "fill": 1,
+                "linewidth": 2,
+                "legend": {
+                    "show": true,
+                    "alignAsTable": true,
+                    "avg": true,
+                    "current": true
+                }
+            }
+        ]
+    },
+    "overwrite": true
+}

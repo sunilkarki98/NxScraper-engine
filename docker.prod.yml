@@ -1,0 +1,139 @@
+version: '3.9'
+
+#############################
+# VOLUMES
+#############################
+volumes:
+  redis-data:
+
+#############################
+# NETWORKS
+#############################
+networks:
+  backend:
+    driver: bridge
+
+#############################
+# SERVICES
+#############################
+services:
+
+  ######################################
+  # Redis Store (DragonflyDB)
+  ######################################
+  redis:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    container_name: scrapex-redis
+    command: ["--maxmemory=2G", "--default_lua_flags=allow-undeclared-keys"]
+    restart: always
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+
+  ######################################
+  # API Gateway
+  ######################################
+  api:
+    build:
+      context: .
+      dockerfile: packages/core/Dockerfile
+      target: api
+    image: nxscraper-api:prod
+    container_name: scrapex-api
+    restart: always
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      API_PORT: 3000
+      DRAGONFLY_URL: redis://redis:6379
+      REDIS_URL: redis://redis:6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+    ports:
+      - "3000:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+
+  ######################################
+  # Worker Engine (Scrapers)
+  ######################################
+  worker:
+    build:
+      context: .
+      dockerfile: packages/core/Dockerfile
+      target: worker
+    image: nxscraper-worker:prod
+    container_name: scrapex-worker
+    restart: always
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      SERVICE_TYPE: worker
+      DRAGONFLY_URL: redis://redis:6379
+      REDIS_URL: redis://redis:6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+    tmpfs:
+      - /dev/shm:size=1G
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+

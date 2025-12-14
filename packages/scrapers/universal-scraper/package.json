@@ -1,0 +1,30 @@
+{
+    "name": "@nx-scraper/universal-scraper",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "Universal scraper plugin using Playwright",
+    "main": "dist/scraper.js",
+    "types": "dist/scraper.d.ts",
+    "exports": {
+        "./scraper": "./dist/scraper.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsx watch src/scraper.ts",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "playwright": "^1.57.0",
+        "@nx-scraper/shared": "*"
+    },
+    "devDependencies": {
+        "@types/node": "^20.10.0",
+        "tsx": "^4.21.0",
+        "typescript": "^5.2.2",
+        "vitest": "^4.0.15"
+    },
+    "overrides": {
+        "glob": "^10.0.0",
+        "rimraf": "^5.0.0"
+    }
+}

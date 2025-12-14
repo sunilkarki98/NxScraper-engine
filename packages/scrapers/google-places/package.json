@@ -1,0 +1,33 @@
+{
+  "name": "@nx-scraper/google-places",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Google Places API Service for NxScraper",
+  "main": "./dist/places-api.js",
+  "types": "./dist/places-api.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/places-api.d.ts",
+      "import": "./dist/places-api.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build",
+    "test": "echo \"No tests yet\""
+  },
+  "dependencies": {
+    "@googlemaps/google-maps-services-js": "^3.4.2",
+    "@nx-scraper/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.2.2"
+  },
+  "license": "MIT"
+}

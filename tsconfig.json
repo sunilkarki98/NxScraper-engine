@@ -1,0 +1,23 @@
+{
+    "files": [],
+    "references": [
+        {
+            "path": "./packages/core"
+        },
+        {
+            "path": "./packages/shared"
+        },
+        {
+            "path": "./packages/scrapers/google-places"
+        },
+        {
+            "path": "./packages/scrapers/google-scraper"
+        },
+        {
+            "path": "./packages/scrapers/heavy-scraper"
+        },
+        {
+            "path": "./packages/scrapers/universal-scraper"
+        }
+    ]
+}

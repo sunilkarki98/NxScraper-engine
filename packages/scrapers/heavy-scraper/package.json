@@ -1,0 +1,35 @@
+{
+    "name": "@nx-scraper/heavy-scraper",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "Heavy-duty scraper using Puppeteer with stealth plugins",
+    "main": "dist/scraper.js",
+    "types": "dist/scraper.d.ts",
+    "exports": {
+        "./scraper": "./dist/scraper.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsx watch src/scraper.ts",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "cheerio": "^1.1.2",
+        "puppeteer": "^24.31.0",
+        "puppeteer-extra": "^3.3.6",
+        "puppeteer-extra-plugin-anonymize-ua": "^2.4.6",
+        "puppeteer-extra-plugin-recaptcha": "^3.6.8",
+        "puppeteer-extra-plugin-stealth": "^2.11.2",
+        "@nx-scraper/shared": "*"
+    },
+    "devDependencies": {
+        "@types/node": "^20.10.0",
+        "tsx": "^4.21.0",
+        "typescript": "^5.2.2",
+        "vitest": "^4.0.15"
+    },
+    "overrides": {
+        "glob": "^10.0.0",
+        "rimraf": "^5.0.0"
+    }
+}

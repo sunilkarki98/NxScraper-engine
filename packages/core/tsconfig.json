@@ -1,0 +1,55 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "lib": [
+            "ES2022"
+        ],
+        "types": [
+            "node"
+        ],
+        "outDir": "./dist",
+        "baseUrl": ".",
+        "strict": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
+        "composite": true,
+        "paths": {
+            "@nx-scraper/shared": [
+                "../shared/dist"
+            ],
+            "@nx-scraper/shared/*": [
+                "../shared/dist/*"
+            ],
+            "@nx-scraper/google-places": [
+                "../scrapers/google-places/dist"
+            ],
+            "@nx-scraper/google-places/*": [
+                "../scrapers/google-places/dist/*"
+            ]
+        }
+    },
+    "include": [
+        "src/**/*",
+        "scripts/**/*"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist"
+    ],
+    "references": [
+        {
+            "path": "../shared"
+        },
+        {
+            "path": "../scrapers/google-places"
+        }
+    ]
+}

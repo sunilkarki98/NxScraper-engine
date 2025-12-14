@@ -1,0 +1,150 @@
+services:
+  ######################################
+  # DragonflyDB (Redis-compatible)
+  ######################################
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly
+    container_name: local-dragonfly
+    ports:
+      - "6379:6379"
+    command: [ "--maxmemory=3G", "--default_lua_flags=allow-undeclared-keys" ]
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - local-network
+
+  ######################################
+  # Browserless (Chrome)
+  ######################################
+  browserless:
+    image: ghcr.io/browserless/chromium:latest
+    container_name: local-browserless
+    restart: unless-stopped
+    environment:
+      - MAX_CONCURRENT_SESSIONS=10
+      - CONNECTION_TIMEOUT=60000
+    ports:
+      - "3002:3000"
+    networks:
+      - local-network
+
+  ######################################
+  # ChromaDB (Vector DB)
+  ######################################
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: local-chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      IS_PERSISTENT: TRUE
+    restart: unless-stopped
+    networks:
+      - local-network
+
+  ######################################
+  # API Gateway
+  ######################################
+  api-gateway:
+    build:
+      context: .
+      dockerfile: packages/core/Dockerfile
+      target: api
+    container_name: local-api
+    env_file:
+      - .env
+    environment:
+      SERVICE_TYPE: api
+      NODE_ENV: production
+      API_PORT: 3000
+      DRAGONFLY_URL: redis://dragonfly:6379
+      REDIS_URL: redis://dragonfly:6379
+      CHROMA_DB_URL: http://chromadb:8000
+      BROWSER_WS_ENDPOINT: ws://browserless:3000
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-}
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: llama3
+    ports:
+      - "3000:3000"
+    depends_on:
+      dragonfly:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - local-network
+    restart: unless-stopped
+
+  ######################################
+  # Worker Engine
+  ######################################
+  worker-engine:
+    build:
+      context: .
+      dockerfile: packages/core/Dockerfile
+      target: worker
+    container_name: local-worker
+    env_file:
+      - .env
+    environment:
+      SERVICE_TYPE: worker
+      NODE_ENV: production
+      DRAGONFLY_URL: redis://dragonfly:6379
+      REDIS_URL: redis://dragonfly:6379
+      CHROMA_DB_URL: http://chromadb:8000
+      BROWSER_WS_ENDPOINT: ws://browserless:3000
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-}
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: llama3
+    volumes:
+      - /dev/shm:/dev/shm # required for Chromium in Playwright
+    depends_on:
+      dragonfly:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "pgrep -f 'node.*index.js' || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - local-network
+    restart: unless-stopped
+
+#############################
+# VOLUMES
+#############################
+volumes:
+
+  chroma-data:
+
+    #############################
+    # NETWORK
+    #############################
+networks:
+  local-network:
+    driver: bridge
