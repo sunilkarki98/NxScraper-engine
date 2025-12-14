@@ -17,7 +17,7 @@ Production-ready web scraping engine with AI-powered data extraction, async job 
 - 🔐 **Secure** - API key authentication with rate limiting
 - 📈 **Scalable** - Horizontal scaling with Redis-backed job queues
 - 🎛️ **Admin Dashboard** - Web UI for key management, analytics, and monitoring
-- 🌐 **Marketing Website** - Professional Next.js site with docs and guides
+
 
 ## 🏗️ Architecture
 
@@ -223,11 +223,7 @@ scrapex-engine/
 │       ├── google-scraper/
 │       ├── heavy-scraper/
 │       └── universal-scraper/
-├── website/             # Marketing website (Next.js)
-│   ├── app/
-│   │   ├── admin/       # Admin dashboard
-│   │   └── docs/        # Documentation
-│   └── components/
+
 ├── package.json         # Workspace root
 ├── docker-compose.yml   # Development orchestration
 └── setup.sh             # Interactive setup script

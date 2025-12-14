@@ -7,7 +7,7 @@ on:
     branches: [main, develop]
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '24'
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
@@ -19,7 +19,7 @@ jobs:
     
     strategy:
       matrix:
-        node-version: [18, 20]
+        node-version: [24]
     
     steps:
       - name: Checkout code
@@ -33,23 +33,19 @@ jobs:
       
       - name: Install dependencies
         run: |
-          cd core-engine
           npm ci
       
       - name: Run TypeScript compilation
         run: |
-          cd core-engine
           npm run build
       
       - name: Run linter
         run: |
-          cd core-engine
-          npm run lint --if-present
+          npm run lint --workspaces --if-present
       
       - name: Run tests
         run: |
-          cd core-engine
-          npm test --if-present
+          npm test
         env:
           NODE_ENV: test
 
@@ -64,7 +60,6 @@ jobs:
       
       - name: Run npm audit
         run: |
-          cd core-engine
           npm audit --audit-level=high
         continue-on-error: true
       
@@ -115,8 +110,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./core-engine
-          file: ./core-engine/Dockerfile.prod
+          context: .
+          file: ./packages/core/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
