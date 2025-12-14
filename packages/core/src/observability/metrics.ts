@@ -1,6 +1,6 @@
 import { Counter, Gauge, Histogram, collectDefaultMetrics } from 'prom-client';
 import { logger } from '@nx-scraper/shared';
-import { register } from '@nx-scraper/shared/observability/metrics.js';
+import { register } from '@nx-scraper/shared/observability/metrics';
 
 // Export register so other local modules can use it if needed (but prefer importing from shared)
 export { register };
@@ -192,7 +192,7 @@ export function recordError(errorType: string, severity: 'low' | 'medium' | 'hig
 /**
  * Initialize default metrics collection
  */
-import { initMetrics as initSharedMetrics } from '@nx-scraper/shared/observability/metrics.js';
+import { initMetrics as initSharedMetrics } from '@nx-scraper/shared/observability/metrics';
 
 export function initMetrics(): void {
     // Collect default Node.js metrics via shared module
