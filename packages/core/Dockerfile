@@ -139,6 +139,7 @@ COPY --from=builder /app/packages/scrapers/google-scraper/package.json ./package
 # Install Playwright browsers as root (with system dependencies)
 RUN npx playwright install chromium --with-deps
 
+
 # Create non-root user and set up home directory
 RUN addgroup --system nodejs && adduser --system --ingroup nodejs nodejs
 
@@ -148,6 +149,7 @@ RUN mkdir -p /home/nodejs/.cache && \
     chown -R nodejs:nodejs /home/nodejs/.cache && \
     chown -R nodejs:nodejs /app
 
+ENV HOME=/home/nodejs
 USER nodejs
 
 CMD ["node", "packages/core/dist/src/index.js"]
