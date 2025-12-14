@@ -1,0 +1,37 @@
+{
+    "google": {
+        "organic": {
+            "container": ".g",
+            "title": "h3",
+            "link": "a",
+            "snippet": ".VwiC3b"
+        },
+        "localPack": {
+            "container": "[jscontroller=\"AtSb\"]",
+            "name": "[role=\"heading\"]",
+            "rating": ".Yi4kAD",
+            "addressSpans": ".W4Efsd span",
+            "hours": ".ZDu9vd",
+            "price": ".ZDu9vd + span",
+            "website": "a[href^=\"http\"]:not([href*=\"google\"])",
+            "fallback": {
+                "container": ".VkpGBb",
+                "websiteBtn": "a"
+            }
+        },
+        "captcha": {
+            "selectors": [
+                "#recaptcha",
+                ".g-recaptcha",
+                "iframe[src*=\"recaptcha\"]",
+                "iframe[src*=\"hcaptcha\"]"
+            ]
+        },
+        "consent": {
+            "button": "button[aria-label=\"Accept all\"]"
+        },
+        "pagination": {
+            "nextButton": "a#pnnext"
+        }
+    }
+}

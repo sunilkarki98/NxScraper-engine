@@ -1,7 +1,9 @@
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { JobWorker } from './orchestrator/worker.js';
 import { pluginManager } from './plugins/plugin-manager.js';
-import { browserPool, logger, validateEnvironment, env } from '@nx-scraper/shared';
+import { browserPool, logger, validateEnvironment, env, scraperManager } from '@nx-scraper/shared';
 
 // Load environment variables
 dotenv.config();
@@ -22,6 +24,15 @@ try {
 async function main() {
     logger.info('🚀 Starting NxScraper Core Engine...');
     logger.info(`Environment: ${env.NODE_ENV}`);
+
+    // Initialize ScraperManager with correct worker path
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const isTsNode = process.execArgv.some(arg => arg.includes('ts-node'));
+    const workerExtension = isTsNode ? 'ts' : 'js';
+    const workerScript = path.resolve(__dirname, `./worker/scraper.worker.${workerExtension}`);
+
+    scraperManager.initialize({ workerPath: workerScript });
+    logger.info(`✅ ScraperManager initialized with worker: ${workerScript}`);
 
     try {
         // Load and register scraper plugins

@@ -16,7 +16,7 @@
         "start": "npm run start -w @nx-scraper/core"
     },
     "devDependencies": {
-        "typescript": "5.2.2"
+        "typescript": "^5.7.2"
     },
     "overrides": {
         "glob": "^10.4.5",

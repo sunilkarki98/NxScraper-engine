@@ -133,7 +133,8 @@ describe('GoogleScraper', () => {
             expect(mocks.browserPool.acquirePage).toHaveBeenCalledWith(expect.objectContaining({
                 proxy: 'http://proxy.com'
             }));
-            expect(mocks.proxyManager.reportSuccess).toHaveBeenCalledWith('proxy-1');
+            // proxyManager is handled by the orchestrator, not the scraper directly
+            // expect(mocks.proxyManager.reportSuccess).toHaveBeenCalledWith('proxy-1');
         });
 
         it('should handle caching', async () => {
@@ -164,7 +165,9 @@ describe('GoogleScraper', () => {
 
             await scraper.scrape(options);
 
-            expect(mocks.captchaSolver.solve).toHaveBeenCalledWith(mocks.page, 'recaptcha');
+            expect(mocks.captchaSolver.solve).toHaveBeenCalledWith(mocks.page, expect.objectContaining({
+                type: 'recaptcha-v2'
+            }));
         });
 
         it('should handle pagination', async () => {

@@ -9,18 +9,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export class ScraperManager {
-    private workerPath = path.resolve(__dirname, '../../../core/dist/worker/scraper.worker.js'); // Point to core package
-    // In TS execution (ts-node), we might need to point to .ts or use a worker loader.
-    // For now, assuming standard build or ts-node registration.
+    private workerPath: string | null = null;
 
-    // If running with ts-node, we need to point to the .ts file
-    private isTsNode = process.execArgv.some(arg => arg.includes('ts-node'));
+    initialize(config: { workerPath: string }) {
+        this.workerPath = config.workerPath;
+    }
 
-    constructor() {
-        if (this.isTsNode) {
-            // Development mode (ts-node)
-            this.workerPath = path.resolve(__dirname, '../../../core/src/worker/scraper.worker.ts');
+    private getWorkerPath(): string {
+        if (!this.workerPath) {
+            throw new Error('ScraperManager not initialized. Call initialize({ workerPath }) first.');
         }
+        return this.workerPath;
     }
 
 
@@ -43,10 +42,13 @@ export class ScraperManager {
             }
         }
 
+        const workerPath = this.getWorkerPath();
+        const isTsNode = workerPath.endsWith('.ts');
+
         return new Promise((resolve, reject) => {
-            const worker = new Worker(this.workerPath, {
+            const worker = new Worker(workerPath, {
                 workerData: {},
-                execArgv: this.isTsNode ? ['-r', 'ts-node/register'] : undefined
+                execArgv: isTsNode ? ['-r', 'ts-node/register'] : undefined
             });
 
             const timeout = setTimeout(() => {

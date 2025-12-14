@@ -5,7 +5,10 @@ import { captchaSolver } from '@nx-scraper/shared';
 import { getAICache } from '@nx-scraper/shared';
 import { logger } from '@nx-scraper/shared';
 import { createHash } from 'crypto';
+
 import { isMainThread } from 'worker_threads';
+import { Page } from 'playwright';
+import selectors from './config/selectors.json' with { type: "json" };
 
 interface BusinessResult {
     name: string;
@@ -60,7 +63,7 @@ export class GoogleScraper implements IScraper {
 
         const startTime = Date.now();
         let instanceId: string | null = null;
-        let page: any = null;
+        let page: Page | null = null;
 
         try {
             logger.info(`🔍 GoogleScraper v2.0: Starting enhanced search for ${options.url}`);
@@ -78,8 +81,12 @@ export class GoogleScraper implements IScraper {
                 proxy: proxyUrl
             });
 
-            page = acquiredPage;
+            page = acquiredPage as Page;
             instanceId = id;
+
+            if (!page) {
+                throw new Error('Failed to acquire page from browser pool');
+            }
 
             // Navigate to URL
             await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -232,14 +239,9 @@ export class GoogleScraper implements IScraper {
     /**
      * Detect CAPTCHA on page
      */
-    private async detectCaptcha(page: any): Promise<boolean> {
+    private async detectCaptcha(page: Page): Promise<boolean> {
         try {
-            const captchaSelectors = [
-                '#recaptcha',
-                '.g-recaptcha',
-                'iframe[src*="recaptcha"]',
-                'iframe[src*="hcaptcha"]'
-            ];
+            const captchaSelectors = selectors.google.captcha.selectors;
 
             for (const selector of captchaSelectors) {
                 const element = await page.$(selector);
@@ -255,10 +257,10 @@ export class GoogleScraper implements IScraper {
     /**
      * Handle cookie consent with ghost cursor for human-like behavior
      */
-    private async handleConsent(page: any): Promise<void> {
+    private async handleConsent(page: Page): Promise<void> {
         try {
             // Try to find consent button
-            const consentButtonSelector = 'button[aria-label="Accept all"]';
+            const consentButtonSelector = selectors.google.consent.button;
             const exists = await page.$(consentButtonSelector);
 
             if (exists) {
@@ -287,15 +289,16 @@ export class GoogleScraper implements IScraper {
     /**
      * Extract organic search results
      */
-    private async extractOrganicResults(page: any) {
-        return page.evaluate(() => {
+    private async extractOrganicResults(page: Page) {
+        const sel = selectors.google.organic;
+        return page.evaluate((s) => {
             const results: { title: string; link: string; snippet: string }[] = [];
-            const elements = document.querySelectorAll('.g');
+            const elements = document.querySelectorAll(s.container);
 
             elements.forEach((el: any) => {
-                const titleEl = el.querySelector('h3');
-                const linkEl = el.querySelector('a');
-                const snippetEl = el.querySelector('.VwiC3b');
+                const titleEl = el.querySelector(s.title);
+                const linkEl = el.querySelector(s.link);
+                const snippetEl = el.querySelector(s.snippet);
 
                 if (titleEl && linkEl) {
                     results.push({
@@ -306,24 +309,25 @@ export class GoogleScraper implements IScraper {
                 }
             });
             return results;
-        });
+        }, sel);
     }
 
     /**
      * Enhanced local pack extraction with all fixes
      */
-    private async extractLocalPack(page: any): Promise<BusinessResult[]> {
-        return page.evaluate(() => {
+    private async extractLocalPack(page: Page): Promise<BusinessResult[]> {
+        const sel = selectors.google.localPack;
+        return page.evaluate((s) => {
             const businesses: BusinessResult[] = [];
-            const items = document.querySelectorAll('[jscontroller="AtSb"]');
+            const items = document.querySelectorAll(s.container);
 
             if (items.length > 0) {
                 items.forEach((el: any) => {
-                    const name = el.querySelector('[role="heading"]')?.textContent || '';
-                    const rating = el.querySelector('.Yi4kAD')?.textContent || '';
+                    const name = el.querySelector(s.name)?.textContent || '';
+                    const rating = el.querySelector(s.rating)?.textContent || '';
 
                     // ✅ FIX: Extract address properly
-                    const addressSpans = el.querySelectorAll('.W4Efsd span');
+                    const addressSpans = el.querySelectorAll(s.addressSpans);
                     const address = addressSpans.length > 1 ?
                         addressSpans[addressSpans.length - 1].textContent?.trim() : '';
 
@@ -339,14 +343,14 @@ export class GoogleScraper implements IScraper {
                     const phone = phoneMatch ? phoneMatch[0] : null;
 
                     // ✅ ADD: Opening hours
-                    const hoursEl = el.querySelector('.ZDu9vd');
+                    const hoursEl = el.querySelector(s.hours);
                     const hours = hoursEl?.textContent || undefined;
 
                     // ✅ ADD: Price level
-                    const priceLevelEl = el.querySelector('.ZDu9vd + span');
+                    const priceLevelEl = el.querySelector(s.price);
                     const priceLevel = priceLevelEl?.textContent || undefined;
 
-                    const websiteEl = el.querySelector('a[href^="http"]:not([href*="google"])');
+                    const websiteEl = el.querySelector(s.website);
                     const website = websiteEl ? websiteEl.getAttribute('href') : null;
 
                     if (name) {
@@ -363,15 +367,15 @@ export class GoogleScraper implements IScraper {
                 });
             } else {
                 // Fallback selector strategy
-                const websiteButtons = Array.from(document.querySelectorAll('a')).filter((a: any) => a.textContent === 'Website');
+                const websiteButtons = Array.from(document.querySelectorAll(s.fallback.websiteBtn)).filter((a: any) => a.textContent === 'Website');
                 websiteButtons.forEach((btn: any) => {
-                    const container = btn.closest('.VkpGBb');
+                    const container = btn.closest(s.fallback.container);
                     if (container) {
-                        const name = container.querySelector('[role="heading"]')?.textContent || '';
-                        const rating = container.querySelector('.Yi4kAD')?.textContent || '';
+                        const name = container.querySelector(s.name)?.textContent || '';
+                        const rating = container.querySelector(s.rating)?.textContent || '';
 
                         // Address extraction for fallback
-                        const addressSpans = container.querySelectorAll('.W4Efsd span');
+                        const addressSpans = container.querySelectorAll(s.addressSpans);
                         const address = addressSpans.length > 1 ?
                             addressSpans[addressSpans.length - 1].textContent?.trim() : '';
 
@@ -390,21 +394,24 @@ export class GoogleScraper implements IScraper {
                 });
             }
 
+
+
             return businesses;
-        });
+        }, sel);
     }
 
     /**
      * Scrape additional page (for pagination)
      */
-    private async scrapePage(page: any, pageNum: number): Promise<BusinessResult[]> {
+    private async scrapePage(page: Page, pageNum: number): Promise<BusinessResult[]> {
         try {
             logger.info(`📄 Scraping page ${pageNum + 1}`);
 
             // Click "Next" button or construct URL for next page
-            const nextButton = await page.$('a#pnnext');
+            const nextButtonSelector = selectors.google.pagination.nextButton;
+            const nextButton = await page.$(nextButtonSelector);
             if (nextButton) {
-                await ghostCursor.moveAndClick(page, 'a#pnnext');
+                await ghostCursor.moveAndClick(page, nextButtonSelector);
                 await page.waitForTimeout(2000);
                 return await this.extractLocalPack(page);
             } else {
