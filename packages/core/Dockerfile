@@ -19,7 +19,7 @@ ENV PATH="$PNPM_HOME:$PATH"
 ###############################################
 FROM base AS deps
 # Install build essentials
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update --allow-releaseinfo-change && apt-get install -y --no-install-recommends \
     python3 build-essential git curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -39,7 +39,7 @@ RUN npm ci --omit=dev
 # Stage 3: Builder (with dev dependencies)
 ###############################################
 FROM base AS builder
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update --allow-releaseinfo-change && apt-get install -y --no-install-recommends \
     python3 build-essential git curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -73,7 +73,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/package*.json ./
 
 # Install wget for healthcheck
-RUN apt-get update && apt-get install -y --no-install-recommends wget && rm -rf /var/lib/apt/lists/*
+RUN apt-get update --allow-releaseinfo-change && apt-get install -y --no-install-recommends wget && rm -rf /var/lib/apt/lists/*
 
 
 # Copy built artifacts
@@ -109,7 +109,7 @@ FROM base AS worker
 ENV NODE_ENV=production
 
 # Install system dependencies for Playwright
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update --allow-releaseinfo-change && apt-get install -y --no-install-recommends \
     fonts-liberation libappindicator3-1 libasound2 libatk-bridge2.0-0 \
     libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 \
     libgbm1 libgcc1 libglib2.0-0 libgtk-3-0 libnspr4 libnss3 libpango-1.0-0 \
