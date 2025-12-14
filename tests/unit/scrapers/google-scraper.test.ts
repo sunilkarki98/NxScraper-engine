@@ -156,7 +156,7 @@ describe('GoogleScraper', () => {
         it('should detect and solve CAPTCHA', async () => {
             // Mock CAPTCHA presence
             mocks.page.$.mockImplementation(async (selector: string) => {
-                if (selector === '#recaptcha') return true;
+                if (selector === '#recaptcha') return { dispose: vi.fn() };
                 return null;
             });
 
@@ -172,7 +172,7 @@ describe('GoogleScraper', () => {
             mocks.page.evaluate.mockResolvedValue([]);
             // Mock "Next" button
             mocks.page.$.mockImplementation(async (selector: string) => {
-                if (selector === 'a#pnnext') return true;
+                if (selector === 'a#pnnext') return { click: vi.fn(), dispose: vi.fn() };
                 return null;
             });
 

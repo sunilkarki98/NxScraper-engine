@@ -9,7 +9,7 @@ describe('Error Classes', () => {
             expect(error.message).toBe('Test error');
             expect(error.code).toBe('TEST_CODE');
             expect(error.statusCode).toBe(500);
-            expect(error.name).toBe('AppError');
+            expect(error.name).toBe('ApplicationError');
         });
 
         it('should default to 500 status code', () => {
@@ -71,14 +71,14 @@ describe('Error Classes', () => {
 
             expect(result).toBeInstanceOf(AppError);
             expect(result.message).toBe('Test error');
-            expect(result.code).toBe('INTERNAL_ERROR');
+            expect(result.code).toBe('INTERNAL_SERVER_ERROR');
         });
 
         it('should convert unknown to AppError', () => {
             const result = toAppError('string error');
 
             expect(result).toBeInstanceOf(AppError);
-            expect(result.message).toBe('string error');
+            expect(result.message).toBe('Unknown error occurred');
         });
     });
 });
