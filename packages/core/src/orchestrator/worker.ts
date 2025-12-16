@@ -1,7 +1,7 @@
 import { Worker as BullWorker, Job } from 'bullmq';
 import { Worker as ThreadWorker } from 'worker_threads';
 import { pluginManager } from '../plugins/plugin-manager.js';
-import { ScrapeOptions, ScrapeResult, logger, env, container, Tokens } from '@nx-scraper/shared';
+import { ScrapeOptions, ScrapeResult, logger, env, container, Tokens, IScraper } from '@nx-scraper/shared';
 import { Router } from '../router/router.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -97,7 +97,7 @@ export class JobWorker {
         const startTime = Date.now();
         logger.info(`Processing job ${job.id} for URL: ${job.data.url}`);
 
-        let scraper: any | undefined;
+        let scraper: IScraper | undefined;
 
         try {
             let analysis;

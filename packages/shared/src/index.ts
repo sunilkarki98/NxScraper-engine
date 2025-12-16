@@ -73,6 +73,8 @@ export * from './scrapers/base-playwright-scraper.js';
 export * from './types/session.interface.js';
 export * from './types/metrics.interface.js';
 export * from './types/webhook.interface.js';
+export * from './types/express-types.js';
+
 
 // Utils
 // Explicitly export symbols to avoid conflicts (specifically ICaptchaSolver)

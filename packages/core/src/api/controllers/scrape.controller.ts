@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { logger, ScrapeRequestSchema } from '@nx-scraper/shared';
+import { logger, ScrapeRequestSchema, AuthenticatedRequest } from '@nx-scraper/shared';
 import { webhookManager } from '../../webhooks/webhook-manager.js';
 import { successResponse, PaginationSchema, getPaginationMeta, APIKeyData } from '@nx-scraper/shared';
 import { ScrapeService } from '../../services/scrape.service.js';
@@ -18,7 +18,7 @@ export class ScrapeController {
         try {
             // Validate request with Zod
             const validated = ScrapeRequestSchema.parse(req.body);
-            const authenticatedReq = req as Request & { apiKey?: APIKeyData };
+            const authReq = req as AuthenticatedRequest;
 
             const result = await this.service.submitJob(
                 {
@@ -27,10 +27,10 @@ export class ScrapeController {
                     options: { ...validated.options, url: validated.url }
                 },
                 {
-                    requestId: (req.id as string) || 'unknown',
-                    userId: (req as any).user?.id,
-                    apiKey: authenticatedReq.apiKey,
-                    correlationId: (req as any).correlationId
+                    requestId: (req as AuthenticatedRequest).id || 'unknown',
+                    userId: authReq.user?.id,
+                    apiKey: authReq.apiKey,
+                    correlationId: authReq.correlationId
                 }
             );
 
@@ -50,7 +50,7 @@ export class ScrapeController {
                 jobId: result.jobId,
                 statusUrl: `/api/v1/jobs/${result.jobId}?type=scrape`,
                 isExisting: result.isExisting
-            }, { requestId: (req.id as string) || 'unknown' }));
+            }, { requestId: (req as AuthenticatedRequest).id || 'unknown' }));
 
         } catch (error: unknown) {
             next(error);
@@ -71,7 +71,7 @@ export class ScrapeController {
             return res.json(successResponse(
                 { scrapers },
                 {
-                    requestId: (req.id as string) || 'unknown',
+                    requestId: (req as AuthenticatedRequest).id || 'unknown',
                     ...getPaginationMeta(total, pagination)
                 }
             ));
