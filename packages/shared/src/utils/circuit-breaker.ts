@@ -32,11 +32,14 @@ export class CircuitBreaker {
     /**
      * Execute a function with circuit breaker protection
      */
-    async execute<T>(fn: () => Promise<T>): Promise<T> {
+    async execute<T>(fn: () => Promise<T>, fallback?: () => Promise<T>): Promise<T> {
         if (this.state === CircuitState.OPEN) {
             if (Date.now() > this.nextAttempt) {
                 this.transitionTo(CircuitState.HALF_OPEN);
             } else {
+                if (fallback) {
+                    return fallback();
+                }
                 throw new Error(`Circuit Breaker '${this.name}' is OPEN. Requests blocked.`);
             }
         }
@@ -47,6 +50,9 @@ export class CircuitBreaker {
             return result;
         } catch (error) {
             this.onFailure(error);
+            if (fallback) {
+                return fallback();
+            }
             throw error;
         }
     }
@@ -58,6 +64,11 @@ export class CircuitBreaker {
                 this.transitionTo(CircuitState.CLOSED);
             }
         } else {
+            // In closed state, success just resets failure count if we want to be forgiving?
+            // Usually we don't reset partial failure count on every success to avoid flapping,
+            // but for simplicity let's keep it forgiving or implement a rolling window later.
+            // For now: don't reset failure count immediately to allow burst tolerance, 
+            // but maybe decay it? Let's just reset for simple "consecutive failures" logic.
             this.failureCount = 0;
         }
     }

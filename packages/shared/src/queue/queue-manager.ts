@@ -3,6 +3,8 @@ import { dragonfly } from '../database/dragonfly-client.js';
 import logger from '../utils/logger.js';
 import { env } from '../utils/env-validator.js';
 
+import { CircuitBreaker } from '../utils/circuit-breaker.js';
+
 export type JobType = 'scrape' | 'ai-pipeline';
 
 export interface JobData {
@@ -12,6 +14,7 @@ export interface JobData {
     html?: string;
     features?: string[];
     priority?: number;
+    traceId?: string;
     [key: string]: unknown;
 }
 
@@ -26,9 +29,13 @@ export class QueueManager {
     private queues: Map<string, Queue> = new Map();
     private queueEvents: Map<string, QueueEvents> = new Map();
     private initialized = false;
+    private breaker: CircuitBreaker;
 
     constructor() {
-        // Deferred initialization
+        this.breaker = new CircuitBreaker('QueueManager', {
+            failureThreshold: 3,
+            cooldownMs: 5000
+        });
     }
 
     private ensureInitialized() {
@@ -63,17 +70,20 @@ export class QueueManager {
             throw new Error(`Queue not found for type: ${type}`);
         }
 
-        const job = await queue.add(type, data, {
-            attempts: 3,
-            backoff: {
-                type: 'exponential',
-                delay: 1000
-            },
-            removeOnComplete: 100, // Keep last 100 completed jobs
-            removeOnFail: 500,     // Keep last 500 failed jobs
-            // Force include timeout even if types are outdated
-            ...({ timeout: 300000 } as any),
-            ...options
+        // Wrap queue addition in circuit breaker
+        const job = await this.breaker.execute(async () => {
+            return await queue.add(type, data, {
+                attempts: 3,
+                backoff: {
+                    type: 'exponential',
+                    delay: 1000
+                },
+                removeOnComplete: 100, // Keep last 100 completed jobs
+                removeOnFail: 500,     // Keep last 500 failed jobs
+                // Force include timeout even if types are outdated
+                ...({ timeout: 300000 } as any),
+                ...options
+            });
         });
 
         logger.info({ jobId: job.id, type }, 'Job added to queue');
@@ -116,16 +126,34 @@ export class QueueManager {
      */
     getConnectionConfig(dragonflyUrl?: string) {
         // Use validated environment instead of hardcoded defaults
-        const url = new URL(dragonflyUrl || env.DRAGONFLY_URL);
+        try {
+            const url = new URL(dragonflyUrl || env.DRAGONFLY_URL);
 
-        return {
-            host: url.hostname,
-            port: parseInt(url.port) || 6379,
-            password: url.password || undefined,
-            username: url.username || undefined,
-            db: url.pathname ? parseInt(url.pathname.substring(1)) : 0,
-        };
+            return {
+                host: url.hostname,
+                port: parseInt(url.port) || 6379,
+                password: url.password || undefined,
+                username: url.username || undefined,
+                db: url.pathname ? parseInt(url.pathname.substring(1)) : 0,
+            };
+        } catch (error) {
+            logger.warn({ error, url: dragonflyUrl || env.DRAGONFLY_URL }, 'Invalid Redis/Dragonfly URL, falling back to localhost default');
+            return {
+                host: 'localhost',
+                port: 6379
+            };
+        }
     }
 }
 
-export const queueManager = new QueueManager();
+/**
+ * Factory function to create QueueManager instance
+ */
+export function createQueueManager(): QueueManager {
+    return new QueueManager();
+}
+
+/**
+ * @deprecated Use createQueueManager() or inject via DI container
+ */
+export const queueManager = createQueueManager();

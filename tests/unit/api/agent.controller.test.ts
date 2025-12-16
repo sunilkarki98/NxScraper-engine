@@ -13,12 +13,25 @@ vi.mock('@core/orchestrator/agent.orchestrator.js', () => {
     };
 });
 
+import { container, Tokens } from '@nx-scraper/shared';
+
 describe('AgentController', () => {
     let controller: AgentController;
 
     beforeEach(() => {
-        controller = new AgentController();
+        // Register mock Dragonfly to satisfy shared service dependencies
+        const mockDragonfly = {
+            getClient: vi.fn(),
+            getSubscriber: vi.fn(),
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+            execute: vi.fn()
+        };
+        container.register(Tokens.Dragonfly, { useValue: mockDragonfly });
+
+        // Reset mocks
         vi.clearAllMocks();
+        controller = new AgentController();
     });
 
     describe('execute', () => {

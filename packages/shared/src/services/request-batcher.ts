@@ -1,11 +1,12 @@
 import { browserPool } from '../browser/pool.js';
 import { rateLimiter } from './rate-limiter.js';
 import logger from '../utils/logger.js';
+import { Page } from 'playwright';
 
-export interface BatchRequest {
+export interface BatchRequest<T = any> {
     url: string;
-    options?: any;
-    resolve: (result: any) => void;
+    options?: Record<string, any>;
+    resolve: (result: T) => void;
     reject: (error: Error) => void;
 }
 
@@ -15,8 +16,16 @@ export interface BatchConfig {
     respectRateLimit: boolean;
 }
 
+export interface BatchResult {
+    success: boolean;
+    url: string;
+    title: string;
+    content: string;
+    timestamp: number;
+}
+
 export class RequestBatcher {
-    private batches: Map<string, BatchRequest[]> = new Map();
+    private batches: Map<string, BatchRequest<BatchResult>[]> = new Map();
     private timers: Map<string, NodeJS.Timeout> = new Map();
     private config: BatchConfig;
 
@@ -31,11 +40,11 @@ export class RequestBatcher {
     /**
      * Add request to batch
      */
-    async add<T>(url: string, options?: any): Promise<T> {
+    async add(url: string, options?: Record<string, any>): Promise<BatchResult> {
         const domain = new URL(url).hostname;
 
         return new Promise((resolve, reject) => {
-            const request: BatchRequest = { url, options, resolve, reject };
+            const request: BatchRequest<BatchResult> = { url, options, resolve, reject };
 
             // Get or create batch for domain
             if (!this.batches.has(domain)) {
@@ -96,7 +105,7 @@ export class RequestBatcher {
         }
 
         // Acquire a single browser page for the whole batch
-        let page: any;
+        let page: Page | undefined;
         let instanceId: string | undefined;
 
         try {
@@ -104,7 +113,8 @@ export class RequestBatcher {
                 engine: 'playwright',
                 evasion: { fingerprint: true }
             });
-            page = result.page;
+            // Safe cast as we requested playwright
+            page = result.page as Page;
             instanceId = result.instanceId;
 
             // Process each request in the batch sequentially (same page, same domain)
@@ -125,15 +135,17 @@ export class RequestBatcher {
                     });
 
                     logger.debug(`Batch request completed: ${request.url}`);
-                } catch (error: any) {
-                    logger.error(error, `Batch request failed: ${request.url}`);
-                    request.reject(error);
+                } catch (error) {
+                    const err = error instanceof Error ? error : new Error(String(error));
+                    logger.error(err, `Batch request failed: ${request.url}`);
+                    request.reject(err);
                 }
             }
-        } catch (error: any) {
-            logger.error(error, `Failed to process batch for ${domain}:`);
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            logger.error(err, `Failed to process batch for ${domain}:`);
             // Reject all requests in batch
-            batch.forEach(req => req.reject(error));
+            batch.forEach(req => req.reject(err));
         } finally {
             // Release page
             if (page && instanceId) {

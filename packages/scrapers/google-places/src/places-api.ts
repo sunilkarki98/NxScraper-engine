@@ -40,6 +40,7 @@ export class GooglePlacesAPI {
     private readonly CACHE_TTL = 86400; // 24 hours
     private readonly CACHE_ENABLED = true; // Enabled for both main thread and workers
     private breaker: CircuitBreaker;
+    private fallbackHandler?: (query: string) => Promise<PlaceResult[]>;
 
     // Lazy cache getter
     private get cache(): ReturnType<typeof getAICache> | null {
@@ -49,7 +50,7 @@ export class GooglePlacesAPI {
         return this._cache;
     }
 
-    constructor(apiKey?: string) {
+    constructor(apiKey?: string, options?: { fallbackHandler?: (query: string) => Promise<PlaceResult[]> }) {
         this.apiKey = apiKey || process.env.GOOGLE_PLACES_API_KEY || '';
 
         if (!this.apiKey) {
@@ -62,6 +63,7 @@ export class GooglePlacesAPI {
             cooldownMs: 60000, // 1 minute
             successThreshold: 2
         });
+        this.fallbackHandler = options?.fallbackHandler;
         logger.info('🗺️ Google Places API initialized');
     }
 
@@ -70,7 +72,8 @@ export class GooglePlacesAPI {
      */
     async searchByText(options: PlaceSearchOptions): Promise<PlaceResult[]> {
         if (!this.apiKey) {
-            throw new Error('Google Places API key not configured');
+            logger.warn('⚠️ Google Places API key not configured, falling back to web scraping');
+            return await this.fallbackToScraper(options);
         }
 
         // Check cache first (only in main thread)
@@ -97,6 +100,11 @@ export class GooglePlacesAPI {
             }));
 
             if (response.data.status !== 'OK' && response.data.status !== 'ZERO_RESULTS') {
+                // 🧠 SMART FALLBACK: Check if quota exceeded or API error
+                if (this.isQuotaExceeded(response.data.status) || this.isAPIError(response.data.status)) {
+                    logger.warn({ status: response.data.status }, '🔄 API failed, falling back to web scraping');
+                    return await this.fallbackToScraper(options);
+                }
                 throw new Error(`Places API error: ${response.data.status}`);
             }
 
@@ -119,8 +127,9 @@ export class GooglePlacesAPI {
             return mappedPlaces;
 
         } catch (error: unknown) {
-            logger.error({ error }, 'Places API search failed');
-            throw error;
+            logger.error({ error }, 'Places API search failed, attempting web scraping fallback');
+            // 🧠 RESILIENCE: Fall back to scraper on any error
+            return await this.fallbackToScraper(options);
         }
     }
 
@@ -284,6 +293,94 @@ export class GooglePlacesAPI {
      */
     isConfigured(): boolean {
         return !!this.apiKey;
+    }
+
+    /**
+     * Check if API error is quota related
+     */
+    private isQuotaExceeded(status: string): boolean {
+        return status === 'OVER_QUERY_LIMIT' || status === 'REQUEST_DENIED';
+    }
+
+    /**
+     * Check if API error requires fallback
+     */
+    private isAPIError(status: string): boolean {
+        return status === 'UNKNOWN_ERROR' || status === 'INVALID_REQUEST';
+    }
+
+    /**
+     * 🧠 HYBRID FALLBACK: Use injected fallback handler when API fails
+     */
+    /**
+     * 🧠 HYBRID FALLBACK: Use injected fallback handler when API fails
+     * Now strictly wired to GoogleScraper
+     */
+    private async fallbackToScraper(options: PlaceSearchOptions): Promise<PlaceResult[]> {
+        logger.info({ query: options.query }, '🕷️ 🔄 Hybrid Fallback: Switching to GoogleScraper...');
+
+        try {
+            // Lazy load GoogleScraper to avoid circular init issues if any
+            const { GoogleScraper } = await import('@nx-scraper/google-scraper');
+            const scraper = new GoogleScraper();
+
+            // Execute scrape
+            // Construct a search URL for Google Maps
+            const safeQuery = encodeURIComponent(options.query);
+            const searchUrl = `https://www.google.com/search?q=${safeQuery}&tbm=lcl`; // tbm=lcl forces Local Pack view
+
+            const scrapeResult = await scraper.scrape({
+                url: searchUrl,
+                proxy: undefined, // Let scraper/proxy-manager decide
+                bypassCache: false
+            });
+
+            if (!scrapeResult.success || !scrapeResult.data?.localPackResults) {
+                logger.warn('⚠️ Hybrid Fallback: Scraper returned no results');
+                return [];
+            }
+
+            // Map Scrape Result to PlaceResult
+            const results: PlaceResult[] = scrapeResult.data.localPackResults.map((item: any): PlaceResult => {
+                return {
+                    placeId: `scraped_${createHash('md5').update(item.name + item.address).digest('hex').substring(0, 10)}`, // Generate synthetic ID
+                    name: item.name,
+                    address: item.address,
+                    phone: item.phone || null,
+                    website: item.website || null,
+                    rating: parseFloat(item.rating) || null,
+                    reviewCount: null, // Scraper doesn't get this easily yet
+                    priceLevel: null,
+                    hours: null,
+                    location: { lat: 0, lng: 0 }, // We don't get geocodes from list scrape
+                    photos: [],
+                    cuisineTypes: [],
+                    verified: false // Scraped data is never "verified"
+                };
+            });
+
+            logger.info({ count: results.length }, '✅ Hybrid Fallback: Successfully recovered data via scraping');
+
+            // Cache fallback results
+            if (this.CACHE_ENABLED && this.cache) {
+                const cacheKey = this.generateCacheKey('fallback-search', options);
+                await this.cache.set(cacheKey, results, this.CACHE_TTL).catch(() => { });
+            }
+
+            return results;
+
+        } catch (error) {
+            logger.error({ error }, '❌ Hybrid Fallback failed completely');
+            return [];
+        }
+    }
+
+    /**
+     * Parse price level string to number
+     */
+    private parsePriceLevel(priceLevel: string): number {
+        const dollarSigns = (priceLevel.match(/\$/g) || []).length;
+        return dollarSigns || 2;
     }
 
     /**

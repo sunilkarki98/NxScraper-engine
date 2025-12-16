@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { isAppError, toAppError, logError } from '@nx-scraper/shared';
+import { isAppError, toAppError, logError, formatValidationError } from '@nx-scraper/shared';
 import { errorResponse } from '@nx-scraper/shared';
 import { logger } from '@nx-scraper/shared';
+import { z } from 'zod';
 
 /**
  * Global error handler middleware
@@ -21,6 +22,13 @@ export function globalErrorHandler(
         ip: req.ip,
         userAgent: req.get('user-agent')
     });
+
+    // Handle Zod Validation Errors
+    if (error instanceof z.ZodError) {
+        const validationError = formatValidationError(error);
+        res.status(400).json(validationError);
+        return;
+    }
 
     // Convert to AppError for consistent handling
     const appError = toAppError(error);

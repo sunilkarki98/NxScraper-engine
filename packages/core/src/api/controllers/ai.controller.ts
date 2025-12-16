@@ -1,10 +1,8 @@
 import { Request, Response } from 'express';
-import { getAIEngine } from '@nx-scraper/shared';
-import { logger } from '@nx-scraper/shared';
-import { toAppError, logError } from '@nx-scraper/shared';
+import { container, Tokens, logger, toAppError, logError } from '@nx-scraper/shared';
 
 export class AIController {
-    private aiEngine = getAIEngine();
+    private aiEngine = container.resolve(Tokens.AIEngine);
 
     /**
      * Run the full AI pipeline

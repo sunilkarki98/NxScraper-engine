@@ -78,7 +78,7 @@ export class GhostCursor implements IGhostCursor {
     }
     async moveRandomly(page: any): Promise<void> {
         try {
-            const viewport = page.viewport() || { width: 1920, height: 1080 };
+            const viewport = (typeof page.viewport === 'function' ? page.viewport() : page.viewportSize()) || { width: 1920, height: 1080 };
             const steps = Math.floor(Math.random() * 3) + 2; // 2 to 4 movements
 
             for (let i = 0; i < steps; i++) {
@@ -90,6 +90,20 @@ export class GhostCursor implements IGhostCursor {
             }
         } catch (error) {
             logger.warn(`GhostCursor moveRandomly failed: ${error}`);
+        }
+    }
+
+    async moveAndClickAt(page: any, x: number, y: number): Promise<void> {
+        try {
+            // Bezier curve simulation (simplified)
+            await page.mouse.move(x, y, { steps: 25 });
+            await new Promise(r => setTimeout(r, Math.random() * 100 + 50));
+            await page.mouse.down();
+            await new Promise(r => setTimeout(r, Math.random() * 50 + 20));
+            await page.mouse.up();
+        } catch (error) {
+            logger.warn({ error, x, y }, 'GhostCursor moveAndClickAt failed');
+            await page.mouse.click(x, y);
         }
     }
 }

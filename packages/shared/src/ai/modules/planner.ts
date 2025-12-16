@@ -12,7 +12,7 @@ export class Planner {
     /**
      * Converts a natural language goal into a structured execution plan
      */
-    async createPlan(goal: string, context: any = {}): Promise<ExecutionPlan> {
+    async createPlan(goal: string, context: any = {}, options: { model?: string, provider?: string } = {}): Promise<ExecutionPlan> {
         logger.info({ goal }, '🧠 Planner: analyzing goal');
 
         // Check cache first
@@ -26,7 +26,7 @@ export class Planner {
         // Define Zod Schema for the Plan
         const PlanStepSchema = z.object({
             id: z.number(),
-            type: z.enum(['search', 'scrape', 'browse', 'extract', 'compare']),
+            type: z.enum(['search', 'scrape', 'browse', 'extract', 'compare', 'map', 'filter']),
             description: z.string(),
             params: z.record(z.string(), z.any()).optional()
         });
@@ -50,17 +50,22 @@ export class Planner {
 
         Available Steps:
         - search: Find URLs using a search engine (params: query)
+        - map: "Fan-out" action. Takes a list of items and runs a sub-action on EACH item (params: action='scrape', concurrency=3). Use this when you need to process multiple results from a search.
+        - filter: AI filtering. Selects relevant items from a list (params: criteria). Use this after search to clean up results.
         - scrape: Scrape a specific URL (params: url, scraper)
         - extract: Extract specific data from the current page/context (params: fields)
         - browse: Navigate or interact with a page (params: action, selector)
         - compare: Compare data items (params: original, new)
 
         Rules:
-        1. Group independent steps into the same stage for efficiency.
-           Example: "Find restaurants in NY and LA" -> Stage 1: [Search NY, Search LA] (Parallel).
-        2. Use 'search' if no URL is provided.
-        3. Use 'scrape' for data collection.
-        4. always include 'extract' after scraping.
+        1. Group independent steps into the same stage.
+        2. Use 'search' -> 'filter' -> 'map' flow for deep scraping.
+           Example: "Find contact info for restaurants in NY"
+           - Stage 1: search { query: "restaurants in NY" }
+           - Stage 2: filter { criteria: "Actual restaurant websites, not directories" }
+           - Stage 3: map { action: "scrape" } (This visits each filtered URL)
+        3. Use 'scrape' for single-target data collection.
+        4. Always include 'extract' if specific fields are needed.
 
         Output valid JSON matching the schema.`;
 
@@ -71,7 +76,9 @@ export class Planner {
                 ExecutionPlanSchema,
                 {
                     systemPrompt,
-                    temperature: 0.2
+                    temperature: 0.2,
+                    model: options.model,
+                    provider: options.provider
                 }
             );
 

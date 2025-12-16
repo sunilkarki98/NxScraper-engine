@@ -76,6 +76,15 @@ export class PluginManager {
     }
 
     /**
+     * Get scrapers by capability
+     */
+    getScrapersByCapability(capability: string): IScraper[] {
+        return Array.from(this.scrapers.values())
+            .map(m => m.instance)
+            .filter(scraper => (scraper as any).capabilities?.includes(capability));
+    }
+
+    /**
      * Execute scraping with the best available scraper
      */
     async scrape(options: ScrapeOptions): Promise<ScrapeResult> {

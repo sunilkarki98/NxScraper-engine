@@ -124,14 +124,14 @@ services:
     networks:
       - backend
     deploy:
-      replicas: 1
+      replicas: 2
       resources:
         limits:
           cpus: '2'
-          memory: 4G
+          memory: 6G
         reservations:
           cpus: '1'
-          memory: 2G
+          memory: 3G
     logging:
       driver: "json-file"
       options:

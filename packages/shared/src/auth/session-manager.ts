@@ -257,4 +257,14 @@ export class SessionManager implements ISessionManager {
     }
 }
 
-export const sessionManager = new SessionManager();
+/**
+ * Factory function to create SessionManager instance
+ */
+export function createSessionManager(): SessionManager {
+    return new SessionManager();
+}
+
+/**
+ * @deprecated Use createSessionManager() or inject via DI container
+ */
+export const sessionManager = createSessionManager();

@@ -1,10 +1,11 @@
-import { LLMProvider, MessageContent } from './interfaces.js';
+import { LLMProvider, MessageContent, LLMOptions, LLMResponse } from './interfaces.js';
 import { OpenAIProvider } from './openai.js';
 import { AnthropicProvider } from './anthropic.js';
 import { GeminiProvider } from './gemini.js';
 import { DeepSeekProvider } from './deepseek.js';
 import { OpenRouterProvider } from './openrouter.js';
 import { OllamaProvider } from './ollama.js';
+
 import { RetryingLLMProvider, costTracker } from './retry-wrapper.js';
 import logger from '../../utils/logger.js';
 
@@ -28,9 +29,12 @@ export class LLMManager {
             this.registerProvider(wrap(new OpenRouterProvider()));
         }
 
-        // Always register Ollama (it's local, so no API key needed usually, but we can check for URL)
-        // We assume it's available if configured or default
-        this.registerProvider(wrap(new OllamaProvider(process.env.OLLAMA_BASE_URL, process.env.OLLAMA_MODEL)));
+
+
+        // Conditionally register Ollama
+        if (process.env.OLLAMA_BASE_URL) {
+            this.registerProvider(wrap(new OllamaProvider(process.env.OLLAMA_BASE_URL, process.env.OLLAMA_MODEL)));
+        }
 
         // Set default based on fallback order AND availability of API keys
         const keyMap: Record<string, string | undefined> = {
@@ -39,7 +43,8 @@ export class LLMManager {
             'gemini': process.env.GEMINI_API_KEY,
             'deepseek': process.env.DEEPSEEK_API_KEY,
             'openrouter': process.env.OPENROUTER_API_KEY,
-            'ollama': process.env.OLLAMA_BASE_URL || 'http://localhost:11434' // Ollama is local
+
+            'ollama': process.env.OLLAMA_BASE_URL
         };
 
         for (const name of fallbackOrder) {
@@ -87,11 +92,26 @@ export class LLMManager {
      * Get provider with fallback - tries providers in order until one succeeds
      */
     async getProviderWithFallback(preferred?: string): Promise<LLMProvider> {
-        const providers = preferred
-            ? [preferred, ...this.getAvailableProviders().filter(p => p !== preferred)]
-            : this.getAvailableProviders();
+        // If a preferred provider is specified, try it first and DO NOT fallback if it fails initialization
+        // This is important for explicit user requests
+        if (preferred) {
+            const provider = this.providers.get(preferred);
+            if (provider) return provider;
 
-        for (const name of providers) {
+            // Principal Engineer Audit Fix: Fail fast on explicit user intent
+            const available = this.getAvailableProviders().join(', ');
+            throw new Error(`Requested LLM provider '${preferred}' is not configured. Available providers: ${available}`);
+        }
+
+        const fallbackOrder = this.defaultProvider ? [this.defaultProvider] : [];
+        // Add other providers to fallback list
+        for (const name of this.providers.keys()) {
+            if (name !== this.defaultProvider) {
+                fallbackOrder.push(name);
+            }
+        }
+
+        for (const name of fallbackOrder) {
             const provider = this.providers.get(name);
             if (provider) {
                 try {
@@ -155,19 +175,14 @@ export class LLMManager {
     /**
      * Generate text using the default or specified provider
      */
-    async generate(prompt: MessageContent, options?: import('./interfaces.js').LLMOptions): Promise<import('./interfaces.js').LLMResponse> {
-        const provider = this.getProvider(options?.model ? undefined : undefined); // Logic for model selection could be more complex, but for now use default
-        // Actually, if options.model is passed, we might want to check if a specific provider handles that model?
-        // But usually providers are generic. 
-        // Let's just use the default provider logic for now.
-        return this.getProvider().generate(prompt, options);
+    async generate(prompt: MessageContent, options: LLMOptions = {}): Promise<LLMResponse> {
+        const provider = await this.getProviderWithFallback(options.provider);
+        return provider.generate(prompt, options);
     }
 
-    /**
-     * Generate structured JSON using the default or specified provider
-     */
-    async generateJSON<T>(prompt: MessageContent, schema: import('zod').ZodSchema<T>, options?: import('./interfaces.js').LLMOptions): Promise<T> {
-        return this.getProvider().generateJSON(prompt, schema, options);
+    async generateJSON<T>(prompt: MessageContent, schema: import('zod').ZodSchema<T>, options: LLMOptions = {}): Promise<T> {
+        const provider = await this.getProviderWithFallback(options.provider);
+        return provider.generateJSON(prompt, schema, options);
     }
 }
 

@@ -6,6 +6,7 @@
     "main": "dist/scraper.js",
     "types": "dist/scraper.d.ts",
     "exports": {
+        ".": "./dist/scraper.js",
         "./scraper": "./dist/scraper.js"
     },
     "scripts": {

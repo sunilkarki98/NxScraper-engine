@@ -172,10 +172,20 @@ export class RateLimiter {
     }
 }
 
-export const rateLimiter = new RateLimiter();
+/**
+ * Factory function to create RateLimiter instance
+ */
+export function createRateLimiter(): RateLimiter {
+    const limiter = new RateLimiter();
+    // Configure common domains with sensible defaults
+    limiter.setLimit({ domain: 'google.com', maxRequests: 10, windowSeconds: 60 });
+    limiter.setLimit({ domain: 'linkedin.com', maxRequests: 5, windowSeconds: 60 });
+    limiter.setLimit({ domain: 'facebook.com', maxRequests: 10, windowSeconds: 60 });
+    limiter.setLimit({ domain: 'twitter.com', maxRequests: 15, windowSeconds: 60 });
+    return limiter;
+}
 
-// Configure common domains with sensible defaults
-rateLimiter.setLimit({ domain: 'google.com', maxRequests: 10, windowSeconds: 60 });
-rateLimiter.setLimit({ domain: 'linkedin.com', maxRequests: 5, windowSeconds: 60 });
-rateLimiter.setLimit({ domain: 'facebook.com', maxRequests: 10, windowSeconds: 60 });
-rateLimiter.setLimit({ domain: 'twitter.com', maxRequests: 15, windowSeconds: 60 });
+/**
+ * @deprecated Use createRateLimiter() or inject via DI container
+ */
+export const rateLimiter = createRateLimiter();

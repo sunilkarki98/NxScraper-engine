@@ -100,5 +100,15 @@ export class CacheService {
     }
 }
 
-// Singleton instance
-export const cacheService = new CacheService();
+/**
+ * Factory function to create CacheService instance
+ */
+export function createCacheService(config?: { defaultTTL?: number }): CacheService {
+    return new CacheService(1000, config?.defaultTTL || 3600000);
+}
+
+/**
+ * @deprecated Use createCacheService() or inject via DI container
+ */
+export const cacheService = createCacheService();
+

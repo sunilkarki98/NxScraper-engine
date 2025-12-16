@@ -25,7 +25,9 @@ export class AgentController {
             const result = await this.orchestrator.execute({
                 url: validated.url,
                 goal: validated.goal,
-                mode: validated.mode
+                mode: validated.mode,
+                model: validated.model,
+                provider: validated.provider
             });
 
             res.json(successResponse(result, { requestId: req.id }));

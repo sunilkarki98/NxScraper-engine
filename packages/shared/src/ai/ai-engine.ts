@@ -8,9 +8,14 @@ import { StrategyPlanningModule } from './modules/strategy-planning.js';
 import { AntiBlockingModule } from './modules/anti-blocking.js';
 import { DataValidationModule } from './modules/data-validation.js';
 import { VisionModule } from './modules/vision.js';
+import { ExtractionModule } from './modules/extraction.js';
+import { knowledgeBase, KnowledgeBase } from './rag/knowledge-base.js';
 import { AIModuleOptions, AIModuleResult } from './interfaces/ai-module.interface.js';
 import { healingManager } from './healing/healing-manager.js';
 import logger from '../utils/logger.js';
+
+import { ActionPlanningModule } from './modules/action-planning.js';
+import { SelectionModule } from './modules/selection.js'; // New Module
 
 export type SafeAIResult<T> =
     | (AIModuleResult<T> & { success: true; error?: never })
@@ -32,19 +37,28 @@ export class AIEngine {
     public readonly antiBlocking: AntiBlockingModule;
     public readonly dataValidation: DataValidationModule;
     public readonly vision: VisionModule;
+    public readonly extraction: ExtractionModule;
+    public readonly actionPlanning: ActionPlanningModule;
+    public readonly selection: SelectionModule; // New Module
+    private knowledgeBase: KnowledgeBase;
 
     constructor(llmManager?: LLMManager, cache?: AICache) {
         this.llmManager = llmManager || createLLMManagerFromEnv();
         this.cache = cache || getAICache();
 
         // Initialize all modules with shared dependencies
+        this.vision = new VisionModule(this.llmManager, this.cache);
         this.pageUnderstanding = new PageUnderstandingModule(this.llmManager, this.cache);
-        this.selectorGeneration = new SelectorGenerationModule(this.llmManager, this.cache);
+        this.selectorGeneration = new SelectorGenerationModule(this.llmManager, this.cache, this.vision);
         this.schemaInference = new SchemaInferenceModule(this.llmManager, this.cache);
         this.strategyPlanning = new StrategyPlanningModule(this.llmManager, this.cache);
         this.antiBlocking = new AntiBlockingModule(this.llmManager, this.cache);
         this.dataValidation = new DataValidationModule(this.llmManager, this.cache);
         this.vision = new VisionModule(this.llmManager, this.cache);
+        this.extraction = new ExtractionModule(this.llmManager, this.cache);
+        this.actionPlanning = new ActionPlanningModule(this.llmManager, this.cache);
+        this.selection = new SelectionModule(this.llmManager, this.cache); // Init
+        this.knowledgeBase = knowledgeBase;
 
         logger.info('🧠 AI Engine initialized');
     }
@@ -55,10 +69,11 @@ export class AIEngine {
     async runPipeline(params: {
         url: string;
         html: string;
+        screenshot?: string; // Base64 screenshot for vision fallback
         extractedData?: unknown[];
         selectors?: Record<string, AIModuleResult<unknown>>;
         previousAttempts?: unknown[];
-        features?: Array<'understand' | 'selectors' | 'schema' | 'strategy' | 'anti-blocking' | 'validate'>;
+        features?: Array<'understand' | 'selectors' | 'schema' | 'strategy' | 'anti-blocking' | 'validate' | 'extract'>;
         options?: AIModuleOptions;
     }): Promise<{
         understanding?: SafeAIResult<any>;
@@ -83,6 +98,7 @@ export class AIEngine {
             strategy?: SafeAIResult<any>;
             antiBlocking?: SafeAIResult<any>;
             validation?: SafeAIResult<any>;
+            extraction?: SafeAIResult<any>;
         } = {};
         const metadata = {
             modulesRun: [] as string[],
@@ -98,7 +114,7 @@ export class AIEngine {
                     results.understanding = {
                         ...await this.pageUnderstanding.execute(
                             { url: params.url, html: params.html },
-                            params.options
+                            params.options // params.options contains LLM parameters like model/provider
                         ), success: true
                     };
                     metadata.modulesRun.push('understanding');
@@ -139,7 +155,8 @@ export class AIEngine {
                                         html: params.html,
                                         fieldName: fieldKey,
                                         context: (fieldInfo as any).description,
-                                        url: params.url // Pass URL for healing
+                                        url: params.url, // Pass URL for healing
+                                        screenshot: params.screenshot // Pass screenshot for vision fallback
                                     },
                                     params.options
                                 );
@@ -245,6 +262,42 @@ export class AIEngine {
                             );
                         }
                     }
+                }
+            }
+
+            // 6. Direct Extraction (One-Shot LLM)
+            if (features.includes('extract') as any) {
+                try {
+                    logger.info('Running direct extraction...');
+                    results.extraction = {
+                        ...await this.extraction.execute(
+                            {
+                                html: params.html,
+                                description: 'Extract main content',
+                                // schema: params.options?.schema // Pass schema if provided in options
+                            },
+                            params.options
+                        ), success: true
+                    };
+                    metadata.modulesRun.push('extraction');
+                    metadata.totalLLMCalls++;
+                } catch (error: unknown) {
+                    const err = error instanceof Error ? error : new Error(String(error));
+                    logger.error({ error: err }, 'Extraction module failed');
+                    results.extraction = {
+                        success: false,
+                        data: null,
+                        error: err.message,
+                        metadata: {
+                            module: 'extraction',
+                            provider: 'unknown',
+                            model: 'unknown',
+                            tokenUsage: { prompt: 0, completion: 0, total: 0 },
+                            cost: 0,
+                            executionTime: 0,
+                            cached: false,
+                        }
+                    };
                 }
             }
 
@@ -363,6 +416,50 @@ export class AIEngine {
     /**
      * Get the LLM manager for direct access
      */
+    /**
+     * Check if AI features are available (i.e. we have at least one active LLM provider)
+     */
+    isAvailable(): boolean {
+        // We check health of LLM manager. If it has providers, we are good.
+        // This is a synchronous check based on configuration, not a live probe.
+        return this.llmManager.getAvailableProviders().length > 0;
+    }
+
+    /**
+     * Attempt to heal a broken selector by generating a new one
+     */
+    async healSelector(params: {
+        url: string;
+        html: string;
+        fieldName: string;
+        brokenSelector?: string;
+    }): Promise<string | null> {
+        if (!this.isAvailable()) return null;
+
+        try {
+            logger.info({ field: params.fieldName, url: params.url }, '🩹 Attempting to heal broken selector...');
+
+            // We use the selector generation module which has built-in vision fallback
+            // and automatically saves to HealingManager if confidence is high
+            const result = await this.selectorGeneration.execute({
+                html: params.html,
+                fieldName: params.fieldName,
+                url: params.url,
+                context: `The previous selector ${params.brokenSelector || ''} failed. Find the best current CSS selector.`
+            });
+
+            if (result.data && result.data.primary.confidence > 0.6) {
+                logger.info({ field: params.fieldName, newSelector: result.data.primary.css }, '🩹 Selector healed successfully');
+                return result.data.primary.css;
+            }
+
+            return null;
+        } catch (error) {
+            logger.warn({ error, field: params.fieldName }, '🩹 Healing attempt failed');
+            return null;
+        }
+    }
+
     getLLMManager(): LLMManager {
         return this.llmManager;
     }
@@ -378,6 +475,13 @@ export function getAIEngine(): AIEngine {
         engineInstance = new AIEngine();
     }
     return engineInstance;
+}
+
+/**
+ * Factory function to create AIEngine instance
+ */
+export function createAIEngine(): AIEngine {
+    return new AIEngine();
 }
 
 export { AIModuleOptions, AIModuleResult };

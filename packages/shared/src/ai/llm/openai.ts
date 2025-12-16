@@ -15,7 +15,15 @@ export class OpenAIProvider implements LLMProvider {
         });
     }
 
-    private async getClient(): Promise<{ client: OpenAI; keyId: string }> {
+    private async getClient(apiKey?: string): Promise<{ client: OpenAI; keyId?: string }> {
+        // BYO-LLM: Use provided key if available
+        if (apiKey) {
+            return {
+                client: new OpenAI({ apiKey }),
+                keyId: undefined // No key ID for externally provided keys
+            };
+        }
+
         const key = await externalKeyManager.getKey('openai');
         if (!key) {
             throw new Error('No available OpenAI API keys');
@@ -29,7 +37,7 @@ export class OpenAIProvider implements LLMProvider {
 
     async generate(prompt: MessageContent, options: LLMOptions = {}): Promise<LLMResponse> {
         return this.breaker.execute(async () => {
-            const { client, keyId } = await this.getClient();
+            const { client, keyId } = await this.getClient(options.apiKey);
             const model = options.model || 'gpt-4o-mini';
 
             try {
@@ -59,7 +67,9 @@ export class OpenAIProvider implements LLMProvider {
                     max_tokens: options.maxTokens,
                 });
 
-                await externalKeyManager.reportSuccess(keyId);
+                if (keyId) {
+                    await externalKeyManager.reportSuccess(keyId);
+                }
 
                 return {
                     content: completion.choices[0]?.message?.content || '',
@@ -72,7 +82,9 @@ export class OpenAIProvider implements LLMProvider {
                 };
             } catch (error: any) {
                 if (error.status === 401 || error.status === 429) {
-                    await externalKeyManager.reportFailure(keyId, error.message);
+                    if (keyId) {
+                        await externalKeyManager.reportFailure(keyId, error.message);
+                    }
                 }
                 throw error;
             }
@@ -81,7 +93,7 @@ export class OpenAIProvider implements LLMProvider {
 
     async generateJSON<T>(prompt: MessageContent, schema: z.ZodSchema<T>, options: LLMOptions = {}): Promise<T> {
         return this.breaker.execute(async () => {
-            const { client, keyId } = await this.getClient();
+            const { client, keyId } = await this.getClient(options.apiKey);
             const model = options.model || 'gpt-4o-mini';
 
             try {
@@ -108,7 +120,9 @@ export class OpenAIProvider implements LLMProvider {
                     response_format: { type: 'json_object' },
                 });
 
-                await externalKeyManager.reportSuccess(keyId);
+                if (keyId) {
+                    await externalKeyManager.reportSuccess(keyId);
+                }
 
                 const content = completion.choices[0]?.message?.content;
                 if (!content) {
@@ -123,7 +137,9 @@ export class OpenAIProvider implements LLMProvider {
                 }
             } catch (error: any) {
                 if (error.status === 401 || error.status === 429) {
-                    await externalKeyManager.reportFailure(keyId, error.message);
+                    if (keyId) {
+                        await externalKeyManager.reportFailure(keyId, error.message);
+                    }
                 }
                 throw error;
             }

@@ -2,8 +2,7 @@ import express, { Request, Response } from 'express';
 import { pluginManager } from '../plugins/plugin-manager.js';
 import { browserPool } from '@nx-scraper/shared';
 import { proxyService } from '@nx-scraper/shared';
-import { getBusinessSearchService } from '../services/business-search.js';
-import { logger, env } from '@nx-scraper/shared';
+import { logger, env, apiKeyManager, container, Tokens } from '@nx-scraper/shared';
 import aiRoutes from './routes/ai.routes.js';
 import { globalErrorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { requestTracingMiddleware } from './middleware/tracing.middleware.js';
@@ -18,6 +17,12 @@ import { swaggerSpec } from './docs/swagger.js';
 
 const app = express();
 const PORT = env.API_PORT;
+
+// Trust Proxy Configuration (Critical for Rate Limiting behind LB)
+if (env.TRUST_PROXY) {
+    logger.info('🛡️  Trust Proxy enabled (behind Load Balancer)');
+    app.set('trust proxy', true); // Trust the immediate upstream proxy
+}
 
 // Initialize Sentry (do this first)
 if (env.SENTRY_DSN) {
@@ -191,7 +196,7 @@ import keyRoutes from './routes/key.routes.js';
 import proxyRoutes from './routes/proxy.routes.js';
 import ragRoutes from './routes/rag.routes.js';
 import jobRoutes from './routes/job.routes.js';
-import { queueWorker } from '@nx-scraper/shared';
+import { queueWorker } from '../worker/queue-worker.js';
 import { cacheService } from '@nx-scraper/shared';
 
 // Protected endpoints (require API key authentication)
@@ -228,7 +233,7 @@ app.use(globalErrorHandler);
  * Start API Server
  */
 export function startAPI() {
-    const server = app.listen(PORT, () => {
+    const server = app.listen(PORT, async () => {
         logger.info(`🌐 API server listening on port ${PORT}`);
         logger.info(`   Health: http://localhost:${PORT}/health`);
         logger.info(`   Metrics: http://localhost:${PORT}/metrics`);
@@ -237,6 +242,17 @@ export function startAPI() {
         logger.info(`   🛡️  Security: Helmet + CORS enabled`);
         if (env.SENTRY_DSN) {
             logger.info(`   📊 Monitoring: Sentry enabled`);
+        }
+
+        // Securely register Admin Key on startup
+        if (env.ADMIN_SECRET) {
+            try {
+                // DI Pattern: Resolve service
+                const apiKeyManager = container.resolve<any>(Tokens.ApiKeyManager);
+                await apiKeyManager.ensureAdminKey(env.ADMIN_SECRET);
+            } catch (err) {
+                logger.error({ err }, '❌ Failed to register Admin Key on startup');
+            }
         }
     });
 

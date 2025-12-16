@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { QueueManager, queueManager, JobType } from '../../../packages/shared/src/queue/queue-manager';
+import { QueueManager, JobType } from '../../../packages/shared/src/queue/queue-manager';
 
 // Define Mock BullMQ Classes
 const mocks = vi.hoisted(() => {
@@ -80,7 +80,10 @@ describe('QueueManager', () => {
     });
 
     describe('Initialization', () => {
-        it('should initialize queues on construction', () => {
+        it('should initialize queues on first job addition', async () => {
+            // Pass a scrape job to trigger initialization
+            await manager.addJob('scrape', { url: "http://test.com" });
+
             expect(mocks.Queue).toHaveBeenCalledWith('scrape-queue', expect.any(Object));
             expect(mocks.Queue).toHaveBeenCalledWith('ai-queue', expect.any(Object));
         });
@@ -119,6 +122,8 @@ describe('QueueManager', () => {
 
     describe('getJob', () => {
         it('should retrieve a job by id', async () => {
+            // Trigger init first
+            await manager.addJob('scrape', { url: "foo" });
             const job = await manager.getJob('scrape', 'job-123');
             expect(job).toBeDefined();
             expect(mocks.queueInstance.getJob).toHaveBeenCalledWith('job-123');

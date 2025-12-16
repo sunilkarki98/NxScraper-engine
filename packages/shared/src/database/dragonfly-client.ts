@@ -2,15 +2,22 @@ import { Redis } from 'ioredis';
 import logger from '../utils/logger.js';
 import { env } from '../utils/env-validator.js';
 
+import { CircuitBreaker } from '../utils/circuit-breaker.js';
+
 // Type alias to avoid namespace/type conflicts
 type RedisClient = Redis;
 
-class DragonflyClient {
+export class DragonflyClient {
     private client: RedisClient | null = null;
     private subscriber: RedisClient | null = null;
+    private breaker: CircuitBreaker;
 
     constructor() {
-        // Initialization deferred until connect() or usage
+        this.breaker = new CircuitBreaker('DragonflyDB', {
+            failureThreshold: 5,
+            cooldownMs: 10000,
+            successThreshold: 2
+        });
     }
 
     private init() {
@@ -61,14 +68,23 @@ class DragonflyClient {
     }
 
     async connect(): Promise<void> {
-        this.init();
-        if (this.client?.status === 'wait') {
-            await this.client.connect();
-        }
-        if (this.subscriber?.status === 'wait') {
-            await this.subscriber.connect();
-        }
+        await this.breaker.execute(async () => {
+            this.init();
+            if (this.client?.status === 'wait') {
+                await this.client.connect();
+            }
+            if (this.subscriber?.status === 'wait') {
+                await this.subscriber.connect();
+            }
+        });
         logger.info('🐉 DragonflyDB fully connected');
+    }
+
+    /**
+     * Execute a Redis operation with circuit breaker protection
+     */
+    async execute<T>(operation: (client: RedisClient) => Promise<T>): Promise<T> {
+        return this.breaker.execute(() => operation(this.getClient()));
     }
 
     getClient(): RedisClient {
@@ -88,5 +104,14 @@ class DragonflyClient {
     }
 }
 
-// Singleton instance
-export const dragonfly = new DragonflyClient();
+/**
+ * Factory function to create DragonflyClient instance
+ */
+export function createDragonflyClient(): DragonflyClient {
+    return new DragonflyClient();
+}
+
+/**
+ * @deprecated Use createDragonflyClient() or inject via DI container
+ */
+export const dragonfly = createDragonflyClient();

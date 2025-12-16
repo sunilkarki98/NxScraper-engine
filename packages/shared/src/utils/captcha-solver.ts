@@ -1,7 +1,7 @@
 import logger from './logger.js';
 
 export interface CaptchaChallenge {
-    type: 'recaptcha-v2' | 'recaptcha-v3' | 'hcaptcha' | 'funcaptcha' | 'unknown';
+    type: 'recaptcha-v2' | 'recaptcha-v3' | 'hcaptcha' | 'funcaptcha' | 'unknown' | 'recaptcha' | 'turnstile'; // Unified types
     siteKey?: string;
     pageUrl: string;
 }
@@ -15,6 +15,7 @@ export interface CaptchaSolution {
 export interface ICaptchaSolver {
     solve(page: any, challenge: CaptchaChallenge): Promise<CaptchaSolution>;
     detectCaptcha(page: any): Promise<CaptchaChallenge | null>;
+    solveWithVision(page: any, aiEngine: any): Promise<boolean>;
 }
 
 /**
@@ -63,16 +64,14 @@ export class MockCaptchaSolver implements ICaptchaSolver {
 
             return null;
         } catch (error) {
-            logger.warn(`Error detecting CAPTCHA: ${error}`);
+            logger.warn({ error }, `Error detecting CAPTCHA`);
             return null;
         }
     }
 
     async solve(page: any, challenge: CaptchaChallenge): Promise<CaptchaSolution> {
         logger.warn(`⚠️ MockCaptchaSolver: CAPTCHA detected but no real solver configured`);
-        logger.info(`Challenge type: ${challenge.type}`);
-        logger.info(`Page URL: ${challenge.pageUrl}`);
-        logger.info(`Site Key: ${challenge.siteKey || 'N/A'}`);
+        logger.info({ type: challenge.type, url: challenge.pageUrl, siteKey: challenge.siteKey }, 'Challenge Details');
 
         // Simulate a delay as if we were solving
         await new Promise(r => setTimeout(r, 2000));
@@ -82,6 +81,11 @@ export class MockCaptchaSolver implements ICaptchaSolver {
             success: false,
             error: 'Mock solver is not configured. Please integrate a real CAPTCHA solver service.'
         };
+    }
+
+    async solveWithVision(page: any, aiEngine: any): Promise<boolean> {
+        logger.warn('⚠️ MockCaptchaSolver: solveWithVision not implemented');
+        return false;
     }
 
     private async extractSiteKey(page: any, captchaType: string): Promise<string | undefined> {

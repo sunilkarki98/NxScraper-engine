@@ -1,10 +1,12 @@
 import { Worker as BullWorker, Job } from 'bullmq';
 import { Worker as ThreadWorker } from 'worker_threads';
 import { pluginManager } from '../plugins/plugin-manager.js';
-import { ScrapeOptions, ScrapeResult, logger, env } from '@nx-scraper/shared';
+import { ScrapeOptions, ScrapeResult, logger, env, container, Tokens } from '@nx-scraper/shared';
 import { Router } from '../router/router.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import http from 'http';
+import { getMetrics, initMetrics } from '../observability/metrics.js';
 
 // Resolve worker path based on environment
 const __filename = fileURLToPath(import.meta.url);
@@ -17,8 +19,20 @@ const __dirname = path.dirname(__filename);
 export class JobWorker {
     private worker: BullWorker;
     private router = new Router();
+    private httpServer?: http.Server;
 
     constructor() {
+        // Initialize metrics
+        initMetrics();
+
+        // Start System Monitor (Phase 10)
+        import('@nx-scraper/shared').then(({ systemMonitor }) => {
+            if (systemMonitor) systemMonitor.start();
+        });
+
+        // Start request routing/metrics server
+        this.startMetricsServer();
+
         const connectionUrl = new URL(env.DRAGONFLY_URL);
 
         this.worker = new BullWorker('scrape-queue', this.processJob.bind(this), {
@@ -41,16 +55,52 @@ export class JobWorker {
     }
 
     /**
+     * Start lightweight HTTP server for metrics/health
+     */
+    private startMetricsServer() {
+        const PORT = env.API_PORT || 3000;
+
+        this.httpServer = http.createServer(async (req, res) => {
+            if (req.url === '/health') {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ status: 'healthy', worker: true }));
+                return;
+            }
+
+            if (req.url === '/metrics') {
+                try {
+                    const metrics = await getMetrics();
+                    res.writeHead(200, { 'Content-Type': 'text/plain' });
+                    res.end(metrics);
+                } catch (error) {
+                    res.writeHead(500);
+                    res.end('Error generating metrics');
+                }
+                return;
+            }
+
+            res.writeHead(404);
+            res.end();
+        });
+
+        this.httpServer.listen(PORT, () => {
+            logger.info(`📊 Worker Metrics Server listening on port ${PORT}`);
+        });
+    }
+
+    /**
      * Process a single scraping job
      */
     private async processJob(job: Job<ScrapeOptions>): Promise<ScrapeResult> {
         const startTime = Date.now();
         logger.info(`Processing job ${job.id} for URL: ${job.data.url}`);
 
+        let scraper: any | undefined;
+
         try {
-            let scraper;
             let analysis;
-            const scraperType = (job.data as any).scraperType;
+            // No cast needed anymore
+            const scraperType = job.data.scraperType;
 
             if (scraperType) {
                 logger.info(`Using requested scraper: ${scraperType}`);
@@ -78,6 +128,14 @@ export class JobWorker {
                 throw new Error(`No suitable scraper found for ${job.data.url}`);
             }
 
+            // [Phase 8] Circuit Breaker Check
+            const domain = new URL(job.data.url).hostname;
+            const circuitBreaker = container.resolve(Tokens.CircuitBreakerService);
+
+            if (await circuitBreaker.isOpen(domain)) {
+                throw new Error(`Circuit Breaker OPEN for ${domain}. Request blocked.`);
+            }
+
             // Get metadata for the scraper to pass to the worker
             const metadata = pluginManager.getMetadata(scraper.name);
             if (!metadata) {
@@ -92,13 +150,43 @@ export class JobWorker {
             result.metadata.executionTimeMs = Date.now() - startTime;
             result.metadata.engine = scraper.name;
 
+            // [Phase 8] Record Circuit Status
+            if (result.success) {
+                await circuitBreaker.recordSuccess(domain);
+            } else {
+                await circuitBreaker.recordFailure(domain);
+            }
+
+            // Phase 9: Record Stats for Learning Router
+            try {
+                const stats = container.resolve(Tokens.RouterStats);
+                // Fire and forget - don't await to avoid latency
+                stats.recordResult(domain, scraper.name, result.success).catch((err: any) => {
+                    logger.warn({ err }, 'Failed to record router stats');
+                });
+            } catch (e) { /* Ignore stats errors */ }
+
             return result;
-        } catch (error: any) {
-            logger.error(error, `Job ${job.id} error:`);
+        } catch (error: unknown) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            logger.error(err, `Job ${job.id} error:`);
+
+            // Phase 9: Record Failure Stats
+            if (scraper) {
+                try {
+                    const domain = new URL(job.data.url).hostname;
+                    const stats = container.resolve(Tokens.RouterStats);
+                    stats.recordResult(domain, scraper.name, false).catch(() => { });
+
+                    // [Phase 8] Record Circuit Failure
+                    const circuitBreaker = container.resolve(Tokens.CircuitBreakerService);
+                    await circuitBreaker.recordFailure(domain);
+                } catch (e) { /* Ignore */ }
+            }
 
             return {
                 success: false,
-                error: error.message || 'Unknown error',
+                error: err.message || 'Unknown error',
                 metadata: {
                     url: job.data.url,
                     timestamp: new Date().toISOString(),
@@ -112,7 +200,7 @@ export class JobWorker {
      * Run the scraper in a separate Worker Thread
      * This prevents blocking the main event loop and isolates crashes
      */
-    private runInWorkerThread(metadata: any, options: ScrapeOptions): Promise<ScrapeResult> {
+    private runInWorkerThread(metadata: { packagePath: string; className: string }, options: ScrapeOptions): Promise<ScrapeResult> {
         return new Promise((resolve, reject) => {
             const isDev = env.NODE_ENV !== 'production';
 
@@ -161,6 +249,9 @@ export class JobWorker {
      */
     async shutdown(): Promise<void> {
         logger.info('Shutting down worker...');
+        if (this.httpServer) {
+            this.httpServer.close();
+        }
         await this.worker.close();
         logger.info('Worker shut down');
     }

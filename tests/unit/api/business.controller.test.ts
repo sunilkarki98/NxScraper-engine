@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BusinessController } from '@core/api/controllers/business.controller';
 import { createMockRequest, createMockResponse } from '../../utils/test-helpers';
 import type { BusinessSearchResult } from '@nx-scraper/shared/types/business.interface';
+import { container, Tokens } from '@nx-scraper/shared';
 
 // Mock the business search service
 vi.mock('@core/services/business-search.js', () => ({
@@ -46,8 +47,17 @@ describe('BusinessController', () => {
     };
 
     beforeEach(() => {
-        controller = new BusinessController();
+        const mockDragonfly = {
+            getClient: vi.fn(),
+            getSubscriber: vi.fn(),
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+            execute: vi.fn()
+        };
+        container.register(Tokens.Dragonfly, { useValue: mockDragonfly });
+
         vi.clearAllMocks();
+        controller = new BusinessController();
     });
 
     afterEach(() => {

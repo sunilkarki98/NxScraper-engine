@@ -9,6 +9,21 @@ export interface ScalingConfig {
     cooldownMs: number;  // Time between scaling actions
 }
 
+export interface PoolStats {
+    totalBrowsers: number;
+    activePages: number;
+    totalPagesCreated: number;
+    maxBrowsers: number | undefined;
+    browsers: Array<{
+        id: string;
+        engine: string;
+        pages: number;
+        totalCreated: number | undefined;
+        ageSeconds: number;
+        idleSeconds: number;
+    }>;
+}
+
 export class BrowserPoolScaler {
     private config: ScalingConfig;
     private lastScaleAction: number = 0;
@@ -35,7 +50,7 @@ export class BrowserPoolScaler {
         logger.info('🚀 Browser pool auto-scaling started');
 
         this.scalingInterval = setInterval(() => {
-            this.evaluateScaling();
+            void this.evaluateScaling();
         }, intervalMs);
     }
 
@@ -60,7 +75,7 @@ export class BrowserPoolScaler {
             return;
         }
 
-        const stats = browserPool.getStats();
+        const stats = browserPool.getStats() as PoolStats;
         const utilization = this.calculateUtilization(stats);
 
         logger.debug(`Browser pool utilization: ${(utilization * 100).toFixed(1)}%`);
@@ -72,34 +87,41 @@ export class BrowserPoolScaler {
         }
     }
 
-    private calculateUtilization(stats: any): number {
-        if (stats.maxBrowsers === 0) return 0;
+    private calculateUtilization(stats: PoolStats): number {
+        if (!stats.maxBrowsers || stats.maxBrowsers === 0) return 0;
 
         const browserUtilization = stats.totalBrowsers / stats.maxBrowsers;
-        const pageUtilization = stats.totalPages / (stats.totalBrowsers * 5 || 1);
+        const pageUtilization = stats.activePages / (stats.totalBrowsers * 5 || 1); // Assuming avg 5 pages per browser
 
         return (browserUtilization * 0.6) + (pageUtilization * 0.4);
     }
 
-    private async scaleUp(stats: any): Promise<void> {
-        if (stats.totalBrowsers >= this.config.maxBrowsers) {
-            logger.warn(`Cannot scale up: Already at max browsers (${this.config.maxBrowsers})`);
+    private async scaleUp(stats: PoolStats): Promise<void> {
+        if (stats.maxBrowsers && stats.totalBrowsers >= stats.maxBrowsers) {
+            logger.warn(`Cannot scale up: Already at max browsers (${stats.maxBrowsers})`);
             return;
         }
 
         const increment = Math.max(2, Math.floor(stats.totalBrowsers * 0.5));
-        const newMax = Math.min(stats.totalBrowsers + increment, this.config.maxBrowsers);
+        const limit = stats.maxBrowsers || this.config.maxBrowsers;
+        const newTotal = Math.min(stats.totalBrowsers + increment, limit);
 
-        logger.info(`📈 Scaling UP browser pool: ${stats.totalBrowsers} → ${newMax}`);
+        logger.info(`📈 Scaling UP browser pool: ${stats.totalBrowsers} → ${newTotal}`);
         this.lastScaleAction = Date.now();
+
+        // Note: Actual scaling implementation requires calling browserPool to launch instances,
+        // but current BrowserPool doesn't expose a 'launch' method publicly (it supports lazy acquire).
+        // For now, we rely on 'acquirePage' to trigger launching, so this scaler is mostly predictive/logging
+        // or would need to call a specific method on pool if it existed.
+        // Assuming we might implement preemptive launching later.
     }
 
-    private async scaleDown(stats: any): Promise<void> {
+    private async scaleDown(stats: PoolStats): Promise<void> {
         if (stats.totalBrowsers <= this.config.minBrowsers) {
             return;
         }
 
-        const idleBrowsers = stats.browsers.filter((b: any) => b.pages === 0).length;
+        const idleBrowsers = stats.browsers.filter(b => b.pages === 0).length;
 
         if (idleBrowsers === 0) {
             return;
@@ -107,6 +129,8 @@ export class BrowserPoolScaler {
 
         logger.info(`📉 Scaling DOWN browser pool (${idleBrowsers} idle browsers)`);
         this.lastScaleAction = Date.now();
+        // BrowserPool handles idle cleanup automatically in startIdleCleanup()
+        // So this method primarily acts as a coordinating signal or metric logger.
     }
 
     getStats() {

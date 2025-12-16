@@ -201,7 +201,7 @@ export class BusinessSearchService {
             throw new Error(`Scraper failed: ${scrapeResult.error}`);
         }
 
-        const businesses = (scrapeResult.data.localPackResults || []).map((business: GoogleScraperBusiness) =>
+        const businesses = (scrapeResult.data?.localPackResults || []).map((business: GoogleScraperBusiness) =>
             this.normalizeScraperResult(business, options.businessType)
         );
 

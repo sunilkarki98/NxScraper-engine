@@ -18,8 +18,11 @@ export interface LLMProvider {
 export interface LLMOptions {
     temperature?: number;
     maxTokens?: number;
-    model?: string;
     systemPrompt?: string;
+    model?: string;
+    provider?: string;
+    json?: boolean;
+    apiKey?: string; // BYO-LLM Support
 }
 
 export interface LLMResponse {

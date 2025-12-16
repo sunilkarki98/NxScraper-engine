@@ -33,56 +33,122 @@ export class BrowserPool {
 
         // Start idle cleanup interval
         this.startIdleCleanup();
+
+        // Startup Reaper (Principal Audit Fix)
+        // Ensure no zombie processes from previous crashes exist (Worker only)
+        if (process.env.SERVICE_TYPE === 'worker') {
+            this.killOrphans().catch(err => logger.error({ err }, 'Failed to run startup reaper'));
+        }
+    }
+
+    /**
+     * Kill orphaned browser processes
+     * Uses pkill to ensure a clean slate
+     */
+    private async killOrphans(): Promise<void> {
+        const { exec } = await import('child_process');
+        const util = await import('util');
+        const execAsync = util.promisify(exec);
+
+        logger.info('💀 Reaper: Checking for zombie browser processes...');
+        try {
+            // Kill chromium, chrome, and playwright instances
+            // || true ensures we don't throw if no processes found
+            await execAsync('pkill -f "chromium|chrome|playwright" || true');
+            logger.info('💀 Reaper: Cleaned up potential zombie processes');
+        } catch (error) {
+            // Ignore error if it's just "no process found" (handled by || true usually, but just in case)
+            logger.debug('Reaper: No zombies found or kill not permitted');
+        }
     }
 
     /**
      * Acquire a browser page for scraping
      */
-    async acquirePage(options: BrowserLaunchOptions & { engine?: 'puppeteer' | 'playwright' } = {}): Promise<{ browser: unknown; page: unknown; instanceId: string }> {
+    private pendingRequests: Array<{
+        resolve: (value: any) => void;
+        reject: (reason?: any) => void;
+        timeout: NodeJS.Timeout;
+        options: any; // Store options to retry
+    }> = [];
+
+    /**
+     * Acquire a browser page for scraping
+     * NOW QUEUED: If pool is full, waits for a slot.
+     */
+    async acquirePage(options: BrowserLaunchOptions & { engine?: 'puppeteer' | 'playwright', timeout?: number } = {}): Promise<{ browser: unknown; page: unknown; instanceId: string }> {
         const engine = options.engine || this.options.defaultEngine!;
         const adapter = this.adapters.get(engine);
+        const acquireTimeout = options.timeout || 30000; // Time to wait for a SLOT, not scrape timeout
 
         if (!adapter) {
             throw new Error(`Browser adapter '${engine}' not found`);
         }
 
-        const now = Date.now();
+        // 1. Check Capacity BEFORE finding instance
+        const currentTotalPages = this.browsers.reduce((sum, b) => sum + b.pageCount, 0);
+        const maxCapacity = (this.options.maxBrowsers || 5) * (this.options.maxPagesPerBrowser || 5);
 
-        // 1. Try to reuse an existing browser that is healthy
-        let instance = this.browsers.find(b =>
-            b.engine === engine &&
-            b.pageCount < this.options.maxPagesPerBrowser! &&
-            (now - b.createdAt) < this.MAX_BROWSER_AGE &&
-            (b.totalPagesCreated || 0) < this.MAX_BROWSER_PAGES_TOTAL
-        );
+        // If we are FULL, queue the request
+        if (currentTotalPages >= maxCapacity) {
+            logger.warn({ currentTotalPages, maxCapacity }, '🔒 Browser pool full, queuing request...');
 
-        // 2. If no browser available and we're at capacity, try to make room
-        if (!instance && this.browsers.length >= this.options.maxBrowsers!) {
-            // Find easiest candidate to recycle (e.g. idle or oldest)
-            // For now, adhere to old logic but add logging. Better strategy: wait for slot.
-            // But to avoid deadlock without a queue, we reuse the least busy one if strictly needed
-            // OR we force one to close if it's idle?
+            return new Promise((resolve, reject) => {
+                const timeoutId = setTimeout(() => {
+                    // Remove from queue if timed out
+                    const idx = this.pendingRequests.findIndex(r => r.timeout === timeoutId);
+                    if (idx !== -1) {
+                        this.pendingRequests.splice(idx, 1);
+                        logger.error('❌ Browser acquisition timed out while queued');
+                        reject(new Error(`Browser acquisition timed out after ${acquireTimeout}ms`));
+                    }
+                }, acquireTimeout);
 
-            // Current "simple" strategy: Just pick one.
-            logger.warn(`Browser pool at capacity (${this.options.maxBrowsers}). reusing least loaded instance...`);
-            instance = this.browsers.reduce((prev, curr) =>
-                curr.pageCount < prev.pageCount ? curr : prev
-            );
+                this.pendingRequests.push({
+                    resolve: (val) => { clearTimeout(timeoutId); resolve(val); },
+                    reject: (err) => { clearTimeout(timeoutId); reject(err); },
+                    timeout: timeoutId,
+                    options // Save options for retry
+                });
+            });
         }
 
-        // 3. Create a new browser if needed
-        if (!instance) {
+        // 2. Proceed with acquisition (guaranteed slot available or creating new one)
+        // ... (reuse existing or launch new logic) ...
+
+        let instance = this.getAvailableInstance(engine);
+
+        // 3. Create a new browser if needed and allowed
+        if (!instance && this.browsers.length < (this.options.maxBrowsers || 5)) {
             instance = await this.launchBrowser(engine, adapter, options);
         }
 
-        // 4. Create Page with Circuit Breaker
+        // 4. If we still don't have an instance but we are NOT at max pages globally,
+        // it means we have browsers but they are all full individually? 
+        // Logic check: (total < maxCapacity). So there MUST be room somewhere or room to create.
+        // Wait, "getAvailableInstance" checks per-browser limit.
+        if (!instance) {
+            // This theoretically shouldn't happen if total < maxCapacity AND logic is sound,
+            // UNLESS all current browsers are full but we haven't reached maxBrowsers limit yet?
+            // Handled by step 3.
+            // What if maxBrowsers reached, but total pages < maxCapacity (some browsers have few pages)?
+            // We should find that existing browser.
+            instance = this.browsers.find(b => b.engine === engine && b.pageCount < (this.options.maxPagesPerBrowser || 5));
+
+            if (!instance) {
+                // Should be impossible if capacity check passed, unless race condition (handled by node single thread)
+                // Or mismatch in engine types.
+                throw new Error('Unexpected pool state: Capacity available but no instance found.');
+            }
+        }
+
         try {
             const page = await adapter.newPage(instance.browser, options);
             instance.pageCount++;
             instance.totalPagesCreated = (instance.totalPagesCreated || 0) + 1;
             instance.lastUsedAt = Date.now();
 
-            logger.info(`📄 Page acquired from ${instance.id} (${instance.pageCount} active, ${instance.totalPagesCreated} total)`);
+            logger.info(`📄 Page acquired from ${instance.id} (${instance.pageCount} active)`);
 
             return {
                 browser: instance.browser,
@@ -91,36 +157,34 @@ export class BrowserPool {
             };
         } catch (error) {
             logger.error({ error, instanceId: instance.id }, 'Failed to create page on browser instance');
-
-            // Circuit Breaker: If creating a page fails, the browser might be zombie.
-            // If it was an existing instance, close it and try creating a fresh one.
+            // Circuit Breaker logic...
             if (this.browsers.includes(instance)) {
                 logger.warn(`♻️ Recycling potentially corrupted browser: ${instance.id}`);
                 await this.closeBrowser(instance.id);
-
-                // Retry once with a fresh browser
-                logger.info('Retrying with a fresh browser instance...');
-                const newInstance = await this.launchBrowser(engine, adapter, options);
-                const page = await adapter.newPage(newInstance.browser, options);
-
-                newInstance.pageCount++;
-                newInstance.totalPagesCreated = (newInstance.totalPagesCreated || 0) + 1;
-                newInstance.lastUsedAt = Date.now();
-
-                return {
-                    browser: newInstance.browser,
-                    page,
-                    instanceId: newInstance.id
-                };
+                // Recursive retry (will re-queue if full, or succeed)
+                return this.acquirePage(options);
             }
             throw error;
         }
+    }
+
+    private getAvailableInstance(engine: string): IBrowserInstance | undefined {
+        const now = Date.now();
+        const maxPages = this.options.maxPagesPerBrowser || 20;
+
+        return this.browsers.find(b =>
+            b.engine === engine &&
+            b.pageCount < maxPages &&
+            (now - b.createdAt) < this.MAX_BROWSER_AGE &&
+            (b.totalPagesCreated || 0) < this.MAX_BROWSER_PAGES_TOTAL
+        );
     }
 
     /**
      * Helper to launch a new browser instance
      */
     private async launchBrowser(engine: string, adapter: IBrowserAdapter, options: BrowserLaunchOptions): Promise<IBrowserInstance> {
+        // ... (existing implementation) ...
         logger.info(`Launching new ${engine} browser...`);
 
         // Generate Fingerprint
@@ -160,7 +224,7 @@ export class BrowserPool {
     }
 
     /**
-     * Release a browser page back to the pool
+     * Release a browser page back to the pool AND TRIGGER QUEUE
      */
     async releasePage(instanceId: string, page: unknown): Promise<void> {
         try {
@@ -168,7 +232,6 @@ export class BrowserPool {
 
             if (!instance) {
                 logger.warn({ instanceId }, 'Browser instance not found in pool when releasing page');
-                // Try to close page anyway if possible? Hard without adapter.
                 return;
             }
 
@@ -180,6 +243,19 @@ export class BrowserPool {
                 instance.pageCount = Math.max(0, instance.pageCount - 1);
                 instance.lastUsedAt = Date.now();
                 logger.info(`📄 Page released from ${instanceId} (${instance.pageCount} active)`);
+
+                // CHECK QUEUE: If we have pending requests, process ONE
+                if (this.pendingRequests.length > 0) {
+                    const nextRequest = this.pendingRequests.shift();
+                    if (nextRequest) {
+                        logger.info('🔓 Slot freed, processing queued request...');
+                        // Recursive retry using saved options
+                        this.acquirePage(nextRequest.options)
+                            .then(nextRequest.resolve)
+                            .catch(nextRequest.reject);
+                    }
+                }
+
             } catch (error) {
                 logger.error({ error, instanceId }, `Failed to close page properly`);
             }
@@ -288,5 +364,18 @@ export class BrowserPool {
     }
 }
 
-// Singleton instance
-export const browserPool = new BrowserPool();
+/**
+ * Factory function to create BrowserPool instance
+ */
+export function createBrowserPool(config?: { maxBrowsers?: number }): BrowserPool {
+    const pool = new BrowserPool();
+    if (config?.maxBrowsers) {
+        (pool as any).maxBrowsers = config.maxBrowsers;
+    }
+    return pool;
+}
+
+/**
+ * @deprecated Use createBrowserPool() or inject via DI container
+ */
+export const browserPool = createBrowserPool();

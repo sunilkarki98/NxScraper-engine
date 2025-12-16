@@ -10,12 +10,19 @@ export interface ScrapeOptions {
     maxLinks?: number;
     returnHtml?: boolean;
     features?: string[];
+    evasionLevel?: 'low' | 'medium' | 'high';
     metadata?: Record<string, any>;
+    scraperType?: string; // Explicitly request a specific scraper
+    selectors?: Record<string, string>; // Custom CSS selectors to extract
+    actions?: Array<{ type: string;[key: string]: any }>; // Semantic actions
+    schema?: any; // AI Structured Extraction Schema
+    llmApiKey?: string; // BYO-LLM Support
+    description?: string; // Goal description for AI planning
 }
 
-export interface ScrapeResult {
+export interface ScrapeResult<T = { html?: string; screenshot?: string;[key: string]: any }> {
     success: boolean;
-    data?: any;
+    data?: T;
     error?: string;
     metadata: {
         url: string;

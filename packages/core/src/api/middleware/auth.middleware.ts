@@ -49,23 +49,7 @@ export async function requireAPIKey(
             return;
         }
 
-        // Check for Master Admin Secret
-        if (env.ADMIN_SECRET && apiKey === env.ADMIN_SECRET) {
-            req.apiKey = {
-                id: 'admin-master',
-                keyHash: 'valid',
-                name: 'Master Admin',
-                tier: 'pro',
-                role: 'admin',
-                createdAt: Date.now(),
-                lastUsedAt: Date.now(),
-                requestCount: 0,
-                isActive: true,
-                rateLimit: { maxRequests: Infinity, windowSeconds: 0 }
-            };
-            next();
-            return;
-        }
+
 
         // Validate the API key
 

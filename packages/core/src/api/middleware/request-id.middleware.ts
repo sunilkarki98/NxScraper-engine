@@ -1,17 +1,20 @@
 import { Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
-// Extend Express Request to include ID
+// Extend Express Request to include ID, Correlation ID, and Parent Request ID
 declare global {
     namespace Express {
         interface Request {
             id?: string;
+            correlationId?: string;
+            parentRequestId?: string;
         }
     }
 }
 
 /**
- * Middleware to generate and track request IDs
+ * Request ID Middleware
+ * Generates or accepts correlation IDs for distributed tracing
  */
 export function requestIdMiddleware(req: Request, res: Response, next: NextFunction) {
     // Use existing X-Request-ID if provided, otherwise generate new

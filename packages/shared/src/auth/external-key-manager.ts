@@ -62,6 +62,10 @@ export class ExternalKeyManager {
             // Fallback to env vars if no dynamic keys found
             const envKey = this.getEnvKey(provider);
             if (envKey) {
+                // Audit SEC-02: Warn on env fallback in production
+                if (process.env.NODE_ENV === 'production') {
+                    logger.warn({ provider }, 'FALLBACK: Using environment variable API key in PRODUCTION. Recommend using DB keys.');
+                }
                 return {
                     id: 'env',
                     provider,
@@ -75,20 +79,24 @@ export class ExternalKeyManager {
             return null;
         }
 
-        // Fetch all keys to find the best one
-        // Optimization: In a high-scale system, we'd use a sorted set (ZSET) for O(1) retrieval
-        // But for < 50 keys per provider, fetching all is fine and simpler to manage state
+        // Fetch all keys in parallel using MGET (Audit ARCH-01)
+        const dbKeys = keyIds.map(id => `${this.keyPrefix}${id}`);
+        const values = await client.mget(dbKeys);
+
         const keys: ExternalKey[] = [];
-        for (const id of keyIds) {
-            const data = await client.get(`${this.keyPrefix}${id}`);
+
+        // Use standard for loop for performance
+        for (let i = 0; i < values.length; i++) {
+            const data = values[i];
             if (data) {
-                const key = JSON.parse(data) as ExternalKey;
                 try {
+                    const key = JSON.parse(data) as ExternalKey;
                     // Decrypt value for usage
                     key.value = decrypt(key.value);
                     keys.push(key);
                 } catch (err) {
-                    logger.warn({ keyId: id }, 'Failed to decrypt key, skipping');
+                    const id = keyIds[i]; // correlated by index
+                    logger.warn({ keyId: id }, 'Failed to decrypt/parse key data, skipping');
                 }
             }
         }

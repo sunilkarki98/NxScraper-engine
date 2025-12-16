@@ -1,4 +1,4 @@
-import { logger } from '@nx-scraper/shared';
+import { logger, container, Tokens } from '@nx-scraper/shared';
 import { ROUTER_CONFIG } from './router.config.js';
 
 export interface WebsiteAnalysis {
@@ -35,7 +35,7 @@ export class Router {
             // Check 2: Known anti-bot domains
             if (this.isAntiBotDomain(domain)) {
                 hasAntiBot = true;
-                recommendedEngine = 'heavy-scraper';
+                recommendedEngine = 'ultra-scraper';
                 confidence = 0.85;
                 reasons.push(`Known anti-bot protection: ${domain}`);
             }
@@ -63,6 +63,27 @@ export class Router {
                 recommendedEngine = 'universal-scraper';
                 confidence = 0.9;
                 reasons.push('URL pattern suggests static content');
+            }
+
+            // Check 7: Learning Router (Dynamic History Upgrade)
+            // If the recommended engine is failing often on this domain, upgrade it.
+            if (recommendedEngine === 'universal-scraper') {
+                try {
+                    const stats = container.resolve(Tokens.RouterStats);
+                    // Check if Universal Scraper is failing (>30% failure rate)
+                    const isFailing = await stats.isUnderperforming(domain, 'universal-scraper', 0.7);
+
+                    if (isFailing) {
+                        recommendedEngine = 'ultra-scraper';
+                        confidence = 0.95;
+                        reasons.push('📈 History: High failure rate detected with Universal Scraper. Auto-upgrading to Ultra.');
+
+                        // Also check if we need to burn the proxy for this specific domain (ToDo in Phase 9.2)
+                    }
+                } catch (err) {
+                    // Fail safe: If Redis is down, just stick to original recommendation
+                    logger.warn({ err }, 'Failed to query RouterStats');
+                }
             }
 
             logger.debug(`Analysis for ${url}: engine=${recommendedEngine}, confidence=${confidence}`);

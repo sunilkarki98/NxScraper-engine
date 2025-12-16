@@ -3,9 +3,12 @@ import logger from '../utils/logger.js';
 import crypto from 'crypto';
 import { request, ProxyAgent } from 'undici';
 
+export type ProxyType = 'datacenter' | 'residential';
+
 export interface ProxyConfig {
     id: string;
     url: string; // http://user:pass@host:port
+    type: ProxyType;
     protocol: 'http' | 'https' | 'socks5';
     country?: string;
     provider?: string;
@@ -20,14 +23,37 @@ export interface ProxyConfig {
 export class ProxyManager {
     private readonly keyPrefix = 'proxy:';
 
+    constructor() {
+        this.initializeFromEnv();
+    }
+
+    private async initializeFromEnv() {
+        if (process.env.PROXY_LIST) {
+            const proxies = process.env.PROXY_LIST.split(',').map(p => p.trim()).filter(p => p);
+            logger.info({ count: proxies.length }, 'Loading proxies from PROXY_LIST env...');
+
+            for (const url of proxies) {
+                // Determine type/protocol naively or default to http/datacenter
+                const protocol = url.startsWith('socks') ? 'socks5' : 'http';
+                // Add with fire-and-forget to avoid blocking constructor
+                this.addProxy(url, { protocol, type: 'datacenter' }).catch(err =>
+                    logger.error({ err }, 'Failed to load env proxy')
+                );
+            }
+        }
+    }
+
     /**
      * Add a new proxy
      */
     async addProxy(proxyUrl: string, metadata: Partial<ProxyConfig> = {}): Promise<ProxyConfig> {
         const id = crypto.randomUUID();
+        const type = metadata.type || 'datacenter';
+
         const proxy: ProxyConfig = {
             id,
             url: proxyUrl,
+            type,
             protocol: (metadata.protocol || 'http'),
             country: metadata.country,
             provider: metadata.provider,
@@ -46,37 +72,43 @@ export class ProxyManager {
         // Add to global set
         await client.sadd(`${this.keyPrefix}all`, id);
 
-        // Add to active set
+        // Add to pool-specific active set
+        await client.sadd(`${this.keyPrefix}active:${type}`, id);
+        // Maintain global active set for backward compatibility/stats if needed
         await client.sadd(`${this.keyPrefix}active`, id);
 
-        logger.info({ proxyId: id, provider: proxy.provider }, 'Proxy added');
+        logger.info({ proxyId: id, provider: proxy.provider, type }, 'Proxy added to pool');
         return proxy;
     }
 
     /**
-     * Get next healthy proxy (Round Robin)
+     * Get next healthy proxy from specific pool (Round Robin / Random)
      */
-    async getNextProxy(): Promise<ProxyConfig | null> {
+    async getNextProxy(type: ProxyType = 'datacenter'): Promise<ProxyConfig | null> {
         const client = dragonfly.getClient();
 
-        // Get all active proxies
-        const activeIds = await client.smembers(`${this.keyPrefix}active`);
+        // Get from pool-specific active set
+        const activeIds = await client.smembers(`${this.keyPrefix}active:${type}`);
 
         if (activeIds.length === 0) {
+            // Strict Mode: Do NOT fall back to global 'active' set automatically.
+            // This prevents accidental usage of expensive Residential proxies when Datacenter was requested.
+            logger.warn({ type }, '⚠️ No active proxies found for requested type');
             return null;
         }
 
-        // Simple random selection for now (can be improved to true round-robin with a pointer)
+        // Random selection for O(1) load balancing
         const randomId = activeIds[Math.floor(Math.random() * activeIds.length)];
+        return this.getProxyUnsafe(randomId);
+    }
 
-        const data = await client.get(`${this.keyPrefix}id:${randomId}`);
+    private async getProxyUnsafe(id: string): Promise<ProxyConfig | null> {
+        const client = dragonfly.getClient();
+        const data = await client.get(`${this.keyPrefix}id:${id}`);
         if (!data) return null;
 
         const proxy = JSON.parse(data) as ProxyConfig;
-
-        // Update usage stats (async)
         this.updateStats(proxy.id).catch(() => { });
-
         return proxy;
     }
 
@@ -97,6 +129,7 @@ export class ProxyManager {
                 if (proxy.errorCount >= 5) {
                     proxy.isActive = false;
                     await client.srem(`${this.keyPrefix}active`, proxyId);
+                    await client.srem(`${this.keyPrefix}active:${proxy.type}`, proxyId);
                     await client.sadd(`${this.keyPrefix}blacklisted`, proxyId);
                     logger.warn({ proxyId }, 'Proxy blacklisted due to excessive errors');
                 }
@@ -152,6 +185,18 @@ export class ProxyManager {
      */
     async removeProxy(id: string): Promise<void> {
         const client = dragonfly.getClient();
+
+        // Try to get type for precise cleanup
+        const data = await client.get(`${this.keyPrefix}id:${id}`);
+        if (data) {
+            const proxy = JSON.parse(data) as ProxyConfig;
+            await client.srem(`${this.keyPrefix}active:${proxy.type}`, id);
+        } else {
+            // Fallback cleanup if data missing
+            await client.srem(`${this.keyPrefix}active:datacenter`, id);
+            await client.srem(`${this.keyPrefix}active:residential`, id);
+        }
+
         await client.del(`${this.keyPrefix}id:${id}`);
         await client.srem(`${this.keyPrefix}all`, id);
         await client.srem(`${this.keyPrefix}active`, id);
@@ -206,6 +251,65 @@ export class ProxyManager {
         }
     }
 
+    async getBestProxyForUrl(url: string): Promise<string | undefined> {
+        try {
+            const domain = new URL(url).hostname;
+            const client = dragonfly.getClient();
+
+            // Check domain failure stats
+            const statsKey = `${this.keyPrefix}stats:${domain}`;
+            const stats = await client.hgetall(statsKey);
+
+            const dcFail = parseInt(stats.dcFail || '0');
+            const resFail = parseInt(stats.resFail || '0');
+            const total = parseInt(stats.total || '0');
+
+            let preferredType: ProxyType = 'datacenter';
+
+            // 🧠 Adaptive Logic: If DC fails > 40% of time (and we have enough samples), switch to Residential
+            if (total > 5 && (dcFail / total) > 0.4) {
+                logger.info({ domain, failRate: (dcFail / total).toFixed(2) }, '🚫 High failure rate on DC IPs. Switching to Residential.');
+                preferredType = 'residential';
+            }
+
+            const proxy = await this.getNextProxy(preferredType);
+            return proxy ? proxy.url : undefined;
+
+        } catch (error) {
+            logger.error({ error }, 'Failed to get adaptive proxy');
+            // Default to Datacenter, no magic fallback
+            return await this.getNextProxy('datacenter').then(p => p?.url);
+        }
+    }
+
+    async reportOutcome(proxyUrl: string, targetUrl: string, success: boolean): Promise<void> {
+        if (!proxyUrl || !targetUrl) return;
+
+        try {
+            const domain = new URL(targetUrl).hostname;
+            const client = dragonfly.getClient();
+            const statsKey = `${this.keyPrefix}stats:${domain}`;
+
+            // Find proxy type (naive check or lookup)
+            const isResidential = proxyUrl.includes('res') || proxyUrl.includes('rot'); // naive
+            // Better: lookup metadata if possible, but for speed we might infer or ignore
+
+            await client.hincrby(statsKey, 'total', 1);
+            if (!success) {
+                if (isResidential) {
+                    await client.hincrby(statsKey, 'resFail', 1);
+                } else {
+                    await client.hincrby(statsKey, 'dcFail', 1);
+                }
+            }
+
+            // Expire stats after 24h to allow retry
+            await client.expire(statsKey, 86400);
+
+        } catch (e) {
+            // ignore
+        }
+    }
     private async updateStats(id: string) {
         const client = dragonfly.getClient();
         const data = await client.get(`${this.keyPrefix}id:${id}`);
@@ -218,4 +322,14 @@ export class ProxyManager {
     }
 }
 
-export const proxyManager = new ProxyManager();
+/**
+ * Factory function to create ProxyManager instance
+ */
+export function createProxyManager(): ProxyManager {
+    return new ProxyManager();
+}
+
+/**
+ * @deprecated Use createProxyManager() or inject via DI container
+ */
+export const proxyManager = createProxyManager();

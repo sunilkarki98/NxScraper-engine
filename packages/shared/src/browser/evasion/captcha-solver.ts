@@ -22,13 +22,6 @@ export class CaptchaSolver implements ICaptchaSolver {
         }
     }
 
-    /**
-     * Solve CAPTCHA on page
-     * 
-     * NOTE: This implementation provides a framework for CAPTCHA solving.
-     * For Puppeteer, it can use puppeteer-extra-plugin-recaptcha (requires API key config).
-     * For third-party solvers like 2Captcha, integrate their API directly or use HTTP requests.
-     */
     async solve(page: any, type: 'recaptcha' | 'hcaptcha' | 'turnstile'): Promise<{ success: boolean; token?: string }> {
         if (!this.config.apiKey) {
             logger.error('Cannot solve CAPTCHA: No API key configured');
@@ -51,6 +44,55 @@ export class CaptchaSolver implements ICaptchaSolver {
         } catch (error: any) {
             logger.error(error, `CAPTCHA solving failed:`);
             return { success: false };
+        }
+    }
+
+    /**
+     * AI-Native Vision Solver (Cost Saver)
+     * Attempts to click the "I am not a robot" box using Vision LLM
+     */
+    async solveWithVision(page: any, aiEngine: any): Promise<boolean> {
+        try {
+            logger.info('👁️ Attempting to solve CAPTCHA visually (Cost Saving Mode)...');
+
+            // 1. Take Screenshot
+            const screenshot = await page.screenshot({ fullPage: false, encoding: 'base64' });
+
+            // 2. Ask Vision AI
+            const start = Date.now();
+            const result = await aiEngine.vision.execute({
+                screenshot,
+                prompt: `You are a captcha interaction agent. Look at this screenshot.
+                Focus on finding the 'I am not a robot' checkbox, or the 'Verify' button for Cloudflare/Turnstile.
+                
+                Goal: Return the precise X and Y coordinates to click to solve or initiate the captcha.
+                center the coordinates on the checkbox/button.
+                
+                Return VALID JSON ONLY: { "found": true, "x": 123, "y": 456, "reason": "found checkbox" }
+                If not found, return { "found": false }`
+            });
+
+            const analysis = result.data as any;
+
+            if (analysis && analysis.found && analysis.x && analysis.y) {
+                logger.info({ coords: { x: analysis.x, y: analysis.y }, latency: Date.now() - start }, '👁️ Vision found CAPTCHA target');
+
+                // 3. Click with GhostCursor
+                const { ghostCursor } = await import('../evasion/ghost-cursor.js');
+                const x = typeof analysis.x === 'string' ? parseInt(analysis.x) : analysis.x;
+                const y = typeof analysis.y === 'string' ? parseInt(analysis.y) : analysis.y;
+
+                await ghostCursor.moveAndClickAt(page, x, y);
+
+                return true;
+            }
+
+            logger.info('👁️ Vision did not find a clickable CAPTCHA element');
+            return false;
+
+        } catch (error) {
+            logger.warn({ error }, '👁️ Vision Solver failed');
+            return false;
         }
     }
 
@@ -205,45 +247,85 @@ export class CaptchaSolver implements ICaptchaSolver {
      * 2. Follow 2Captcha API docs: https://2captcha.com/2captcha-api
      * 3. Implement HTTP requests to submit/retrieve CAPTCHA solutions
      */
-    private async solve2Captcha(params: any): Promise<string | null> {
-        logger.warn('CAPTCHA solver placeholder - integrate 2Captcha API for production use');
+    private async solve2Captcha(params: {
+        siteKey: string;
+        pageUrl: string;
+        type: string;
+    }): Promise<string | null> {
+        if (!this.config.apiKey) return null;
 
-        // Example integration with 2Captcha API (requires undici):
-        /*
-        const { request } = require('undici');
-        
-        // Submit CAPTCHA
-        const { body } = await request('https://2captcha.com/in.php?json=1', {
-            method: 'POST',
-            query: { // For GET requests, use 'query' or append to URL
-                key: this.config.apiKey,
-                method: 'userrecaptcha',
-                googlekey: params.siteKey,
-                pageurl: params.pageUrl,
+        try {
+            // 1. Submit CAPTCHA
+            const submitUrl = new URL('https://2captcha.com/in.php');
+            submitUrl.searchParams.append('key', this.config.apiKey);
+            submitUrl.searchParams.append('json', '1');
+
+            // Map types to 2Captcha methods
+            if (params.type === 'recaptcha') {
+                submitUrl.searchParams.append('method', 'userrecaptcha');
+                submitUrl.searchParams.append('googlekey', params.siteKey);
+            } else if (params.type === 'hcaptcha') {
+                submitUrl.searchParams.append('method', 'hcaptcha');
+                submitUrl.searchParams.append('sitekey', params.siteKey);
+            } else if (params.type === 'turnstile') {
+                submitUrl.searchParams.append('method', 'turnstile');
+                submitUrl.searchParams.append('sitekey', params.siteKey);
+            } else {
+                return null;
             }
-        });
-        
-        const taskId = submitResponse.data.request;
-        
-        // Poll for result
-        await new Promise(r => setTimeout(r, 20000)); // Wait 20s
-        
-        const resultResponse = await axios.get('https://2captcha.com/res.php', {
-            params: {
-                key: this.config.apiKey,
-                action: 'get',
-                id: taskId,
-                json: 1
+
+            submitUrl.searchParams.append('pageurl', params.pageUrl);
+
+            const submitRes = await fetch(submitUrl.toString());
+            const submitData = await submitRes.json() as any;
+
+            if (submitData.status !== 1) {
+                logger.error({ response: submitData }, '2Captcha submission failed');
+                return null;
             }
-        });
-        
-        if (resultResponse.data.status === 1) {
-            return resultResponse.data.request; // CAPTCHA token
+
+            const taskId = submitData.request;
+            logger.info({ taskId }, 'CAPTCHA submitted to 2Captcha. Waiting for solution...');
+
+            // 2. Poll for result
+            const maxAttempts = 30; // 30 * 5s = 150s max
+            for (let i = 0; i < maxAttempts; i++) {
+                await new Promise(r => setTimeout(r, 5000)); // Wait 5s
+
+                const resultUrl = new URL('https://2captcha.com/res.php');
+                resultUrl.searchParams.append('key', this.config.apiKey);
+                resultUrl.searchParams.append('action', 'get');
+                resultUrl.searchParams.append('id', taskId);
+                resultUrl.searchParams.append('json', '1');
+
+                const resultRes = await fetch(resultUrl.toString());
+                const resultData = await resultRes.json() as any;
+
+                if (resultData.status === 1) {
+                    return resultData.request; // The token
+                }
+
+                if (resultData.request !== 'CAPCHA_NOT_READY') {
+                    logger.warn({ response: resultData }, '2Captcha polling error');
+                    return null;
+                }
+            }
+
+            logger.error('2Captcha timeout');
+            return null;
+
+        } catch (error) {
+            logger.error({ error }, '2Captcha API error');
+            return null;
         }
-        */
-
-        return null;
     }
 }
 
 export const captchaSolver = new CaptchaSolver();
+
+/**
+ * Factory function to create CaptchaSolver instance
+ */
+export function createCaptchaSolver(): CaptchaSolver {
+    return new CaptchaSolver();
+}

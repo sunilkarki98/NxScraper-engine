@@ -1,7 +1,7 @@
 
 export interface PlanStep {
     id: number;
-    type: 'search' | 'scrape' | 'browse' | 'extract' | 'compare';
+    type: 'search' | 'scrape' | 'browse' | 'extract' | 'compare' | 'map' | 'filter' | 'crawl';
     description: string;
     params?: Record<string, any>;
 }
@@ -38,4 +38,28 @@ export interface StepResult {
     url?: string;
     metadata?: any;
     stepId: number;
+}
+
+export interface AIModuleOptions {
+    model?: string;
+    imageDetail?: 'low' | 'high' | 'auto';
+    provider?: string;
+    temperature?: number;
+}
+
+export interface AIModuleResult<T = any> {
+    success: boolean;
+    data?: T;
+    error?: string;
+    metadata?: {
+        model?: string;
+        tokens?: number;
+        cost?: number;
+        processingTime?: number;
+    };
+}
+
+export interface IAIModule<Input = any, Output = any> {
+    name: string;
+    execute(input: Input, options?: AIModuleOptions): Promise<AIModuleResult<Output>>;
 }

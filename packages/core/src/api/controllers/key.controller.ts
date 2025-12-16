@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { apiKeyManager } from '@nx-scraper/shared';
+import { apiKeyManager, container, Tokens } from '@nx-scraper/shared';
 import { externalKeyManager } from '@nx-scraper/shared';
 import { logger } from '@nx-scraper/shared';
 
@@ -36,7 +36,8 @@ export class KeyController {
      */
     async registerInternalKey(req: Request, res: Response) {
         try {
-            const { keyHash, userId, tier, rateLimit, name } = req.body;
+            // Added 'role' to destructuring
+            const { keyHash, userId, tier, rateLimit, name, role } = req.body;
 
             if (!keyHash || !userId) {
                 return res.status(400).json({ error: 'keyHash and userId are required' });
@@ -46,12 +47,16 @@ export class KeyController {
                 return res.status(400).json({ error: 'rateLimit with maxRequests and windowSeconds is required' });
             }
 
+            // DI Pattern: Resolve service
+            const apiKeyManager = container.resolve<any>(Tokens.ApiKeyManager);
+
             const keyId = await apiKeyManager.registerHashedKey({
                 keyHash,
                 userId,
                 tier: tier || 'free',
                 rateLimit,
-                name
+                name,
+                role // Pass role to manager
             });
 
             logger.info({ keyId, userId, tier }, 'Registered API key from admin panel');

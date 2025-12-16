@@ -9,6 +9,16 @@ vi.mock('@nx-scraper/shared', () => ({
         addJob: vi.fn().mockResolvedValue({ id: 'job-123' }),
         getMetrics: vi.fn().mockResolvedValue({ waiting: 0 }),
     },
+    // Mock Container
+    container: {
+        resolve: vi.fn().mockReturnValue({
+            addJob: vi.fn().mockResolvedValue({ id: 'job-123' }),
+            getMetrics: vi.fn().mockResolvedValue({ waiting: 0 }),
+        })
+    },
+    Tokens: {
+        QueueManager: 'QueueManager'
+    },
     cacheService: {
         get: vi.fn().mockResolvedValue(null),
         set: vi.fn().mockResolvedValue(true),
@@ -73,17 +83,12 @@ describe('ScrapeController', () => {
             const req = createMockRequest({});
             const res = createMockResponse();
 
-            await controller.scrape(req, res);
+            const next = vi.fn();
+            await controller.scrape(req, res, next);
 
-            expect(res.status).toHaveBeenCalledWith(400);
-            expect(res.json).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    success: false,
-                    error: expect.objectContaining({
-                        code: 'VALIDATION_ERROR',
-                    }),
-                })
-            );
+            expect(next).toHaveBeenCalledWith(expect.any(z.ZodError));
+            // res.status not called because controller delegates to middleware
+            expect(res.status).not.toHaveBeenCalled();
         });
 
         it('should queue scrape job successfully', async () => {
@@ -93,7 +98,8 @@ describe('ScrapeController', () => {
             });
             const res = createMockResponse();
 
-            await controller.scrape(req, res);
+            const next = vi.fn();
+            await controller.scrape(req, res, next);
 
             expect(res.status).toHaveBeenCalledWith(202);
             expect(res.json).toHaveBeenCalledWith(
@@ -112,7 +118,8 @@ describe('ScrapeController', () => {
             });
             const res = createMockResponse();
 
-            await controller.scrape(req, res);
+            const next = vi.fn();
+            await controller.scrape(req, res, next);
 
             expect(res.status).toHaveBeenCalledWith(202);
         });

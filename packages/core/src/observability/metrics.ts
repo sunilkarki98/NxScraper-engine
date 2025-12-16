@@ -34,33 +34,9 @@ export const httpRequestDuration = new Histogram({
 // Business Metrics
 // ============================================
 
-/**
- * Scrape success rate
- */
-export const scrapeSuccessRate = new Gauge({
-    name: 'scrape_success_rate',
-    help: 'Percentage of successful scrapes',
-    registers: [register],
-});
-
-/**
- * Total scrapes counter
- */
-export const scrapesTotal = new Counter({
-    name: 'scrapes_total',
-    help: 'Total number of scrape jobs',
-    labelNames: ['status', 'scraper_type'],
-    registers: [register],
-});
-
-/**
- * Active scrape jobs
- */
-export const activeScrapeJobs = new Gauge({
-    name: 'active_scrape_jobs',
-    help: 'Number of currently active scrape jobs',
-    registers: [register],
-});
+// Scraper metrics are now managed in @nx-scraper/shared/observability/metrics.ts
+// to allow BasePlaywrightScraper to use them directly.
+// See: import { scrapesTotal, activeScrapers } from '@nx-scraper/shared';
 
 /**
  * LLM API calls counter
@@ -129,32 +105,23 @@ export const apiKeyValidationFailures = new Counter({
 // Helper Functions
 // ============================================
 
+import { scrapesTotal, activeScrapers } from '@nx-scraper/shared/observability/metrics.js';
+
 /**
- * Update scrape metrics
+ * Update scrape metrics (Legacy Helper - Prefer using BaseScraper internal instrumentation)
  */
 export function recordScrapeMetrics(
     success: boolean,
     scraperType: string,
     durationMs: number
 ): void {
+    // This helper is kept for backward compatibility if other modules call it,
+    // but checks should be made if it conflicts with BaseScraper auto-instrumentation.
+    // For now, we delegate to the shared metric instance.
     scrapesTotal.inc({
+        scraper: scraperType,
         status: success ? 'success' : 'failure',
-        scraper_type: scraperType,
     });
-
-    // Update success rate (simplified calculation)
-    const successCount = (scrapesTotal.get() as any).values.find(
-        (v: any) => v.labels.status === 'success'
-    )?.value || 0;
-
-    const totalCount = (scrapesTotal.get() as any).values.reduce(
-        (sum: number, v: any) => sum + v.value,
-        0
-    );
-
-    if (totalCount > 0) {
-        scrapeSuccessRate.set((successCount / totalCount) * 100);
-    }
 }
 
 /**

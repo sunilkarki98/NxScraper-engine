@@ -28,7 +28,7 @@ COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/
 COPY packages/shared/package.json packages/shared/
 COPY packages/scrapers/google-scraper/package.json packages/scrapers/google-scraper/
-COPY packages/scrapers/heavy-scraper/package.json packages/scrapers/heavy-scraper/
+COPY packages/scrapers/ultra-scraper/package.json packages/scrapers/ultra-scraper/
 COPY packages/scrapers/universal-scraper/package.json packages/scrapers/universal-scraper/
 COPY packages/scrapers/google-places/package.json packages/scrapers/google-places/
 
@@ -58,7 +58,7 @@ COPY packages packages/
 RUN npm run build -w @nx-scraper/shared && \
     npm run build -w @nx-scraper/google-places && \
     npm run build -w @nx-scraper/google-scraper && \
-    npm run build -w @nx-scraper/heavy-scraper && \
+    npm run build -w @nx-scraper/ultra-scraper && \
     npm run build -w @nx-scraper/universal-scraper && \
     npm run build -w @nx-scraper/core
 
@@ -72,8 +72,8 @@ ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/package*.json ./
 
-# Install wget for healthcheck
-RUN apt-get update --allow-releaseinfo-change && apt-get install -y --no-install-recommends wget && rm -rf /var/lib/apt/lists/*
+# Install wget for healthcheck and tini for zombie reaping
+RUN apt-get update --allow-releaseinfo-change && apt-get install -y --no-install-recommends wget tini && rm -rf /var/lib/apt/lists/*
 
 
 # Copy built artifacts
@@ -85,8 +85,8 @@ COPY --from=builder /app/packages/scrapers/google-places/dist ./packages/scraper
 COPY --from=builder /app/packages/scrapers/google-places/package.json ./packages/scrapers/google-places/
 COPY --from=builder /app/packages/scrapers/universal-scraper/dist ./packages/scrapers/universal-scraper/dist
 COPY --from=builder /app/packages/scrapers/universal-scraper/package.json ./packages/scrapers/universal-scraper/
-COPY --from=builder /app/packages/scrapers/heavy-scraper/dist ./packages/scrapers/heavy-scraper/dist
-COPY --from=builder /app/packages/scrapers/heavy-scraper/package.json ./packages/scrapers/heavy-scraper/
+COPY --from=builder /app/packages/scrapers/ultra-scraper/dist ./packages/scrapers/ultra-scraper/dist
+COPY --from=builder /app/packages/scrapers/ultra-scraper/package.json ./packages/scrapers/ultra-scraper/
 COPY --from=builder /app/packages/scrapers/google-scraper/dist ./packages/scrapers/google-scraper/dist
 COPY --from=builder /app/packages/scrapers/google-scraper/package.json ./packages/scrapers/google-scraper/
 
@@ -100,7 +100,7 @@ EXPOSE 3000
 RUN addgroup --system nodejs && adduser --system --ingroup nodejs nodejs
 USER nodejs
 
-CMD ["node", "packages/core/dist/src/index.js"]
+CMD ["/usr/bin/tini", "--", "node", "packages/core/dist/src/index.js"]
 
 ###############################################
 # Stage 5: Worker (Full Chromium + Playwright)
@@ -108,14 +108,14 @@ CMD ["node", "packages/core/dist/src/index.js"]
 FROM base AS worker
 ENV NODE_ENV=production
 
-# Install system dependencies for Playwright
+# Install system dependencies for Playwright and tini
 RUN apt-get update --allow-releaseinfo-change && apt-get install -y --no-install-recommends \
     fonts-liberation libappindicator3-1 libasound2 libatk-bridge2.0-0 \
     libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 \
     libgbm1 libgcc1 libglib2.0-0 libgtk-3-0 libnspr4 libnss3 libpango-1.0-0 \
     libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 \
     libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 \
-    libxss1 libxtst6 lsb-release wget xdg-utils procps ca-certificates \
+    libxss1 libxtst6 lsb-release wget xdg-utils procps ca-certificates tini \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy production dependencies
@@ -131,8 +131,8 @@ COPY --from=builder /app/packages/scrapers/google-places/dist ./packages/scraper
 COPY --from=builder /app/packages/scrapers/google-places/package.json ./packages/scrapers/google-places/
 COPY --from=builder /app/packages/scrapers/universal-scraper/dist ./packages/scrapers/universal-scraper/dist
 COPY --from=builder /app/packages/scrapers/universal-scraper/package.json ./packages/scrapers/universal-scraper/
-COPY --from=builder /app/packages/scrapers/heavy-scraper/dist ./packages/scrapers/heavy-scraper/dist
-COPY --from=builder /app/packages/scrapers/heavy-scraper/package.json ./packages/scrapers/heavy-scraper/
+COPY --from=builder /app/packages/scrapers/ultra-scraper/dist ./packages/scrapers/ultra-scraper/dist
+COPY --from=builder /app/packages/scrapers/ultra-scraper/package.json ./packages/scrapers/ultra-scraper/
 COPY --from=builder /app/packages/scrapers/google-scraper/dist ./packages/scrapers/google-scraper/dist
 COPY --from=builder /app/packages/scrapers/google-scraper/package.json ./packages/scrapers/google-scraper/
 
@@ -152,4 +152,4 @@ RUN mkdir -p /home/nodejs/.cache && \
 ENV HOME=/home/nodejs
 USER nodejs
 
-CMD ["node", "packages/core/dist/src/index.js"]
+CMD ["/usr/bin/tini", "--", "node", "packages/core/dist/src/index.js"]

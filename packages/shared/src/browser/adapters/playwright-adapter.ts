@@ -1,6 +1,8 @@
 import { chromium } from 'playwright';
 import { IBrowserAdapter, BrowserLaunchOptions } from '../../types/browser.interface.js';
 import { fingerprintEvader } from '../evasion/fingerprint.js';
+import { StealthContext } from '../evasion/stealth.js';
+import logger from '../../utils/logger.js';
 
 export class PlaywrightAdapter implements IBrowserAdapter {
     name = 'playwright';
@@ -10,14 +12,11 @@ export class PlaywrightAdapter implements IBrowserAdapter {
         // Check for remote connection
         const envWs = process.env.BROWSER_WS_ENDPOINT;
         const optsWs = options.wsEndpoint;
-        console.log(`[PlaywrightAdapter] Debug - Env WS: '${envWs}', Options WS: '${optsWs}'`);
+        logger.debug(`[PlaywrightAdapter] Debug - Env WS: '${envWs}', Options WS: '${optsWs}'`);
 
         if (envWs || optsWs) {
             const wsEndpoint = options.wsEndpoint || process.env.BROWSER_WS_ENDPOINT;
             // Playwright connects via WebSocket
-            // Note: browserless matches Puppeteer's CDP mostly, but for Playwright we might need connectOverCDP or standard connect depending on image
-            // standard 'connect' expects a playwright-server. 'connectOverCDP' connects to Chrome directly.
-            // browserless is Chrome.
             const browser = await chromium.connectOverCDP(wsEndpoint!);
             return browser;
         }
@@ -27,7 +26,10 @@ export class PlaywrightAdapter implements IBrowserAdapter {
             args: [
                 ...(options.args || []),
                 '--no-sandbox',
-                '--disable-setuid-sandbox'
+                '--disable-setuid-sandbox',
+                // Additional stealth args
+                '--disable-blink-features=AutomationControlled',
+                '--disable-infobars'
             ],
             proxy: options.proxy ? { server: options.proxy } : undefined,
             executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
@@ -50,8 +52,12 @@ export class PlaywrightAdapter implements IBrowserAdapter {
         const context = await browser.newContext(contextOptions);
         const page = await context.newPage();
 
-        // Apply evasion if requested
-        if (options?.evasion?.fingerprint) {
+        // Apply evasion by default (Audit SEC-01)
+        // Only skip if explicitly set to false
+        if (options?.evasion?.fingerprint !== false) {
+            // Apply new robust stealth scripts (Phase 3)
+            await StealthContext.apply(page);
+            // Apply existing fingerprint evader if necessary (kept for backward compatibility)
             await fingerprintEvader.apply(page);
         }
 

@@ -3,17 +3,17 @@
         "organic": {
             "container": ".g",
             "title": "h3",
-            "link": "a",
-            "snippet": ".VwiC3b"
+            "link": "a[href^=\"http\"]",
+            "snippet": "[data-sncf=\"1\"], .VwiC3b, span"
         },
         "localPack": {
-            "container": "[jscontroller=\"AtSb\"]",
-            "name": "[role=\"heading\"]",
+            "container": "[jscontroller=\"AtSb\"], div[role=\"article\"]",
+            "name": "div[role=\"heading\"], .OSrXXb",
             "rating": ".Yi4kAD",
             "addressSpans": ".W4Efsd span",
-            "hours": ".ZDu9vd",
-            "price": ".ZDu9vd + span",
-            "website": "a[href^=\"http\"]:not([href*=\"google\"])",
+            "hours": ".ZDu9vd, span[aria-label*=\"Open\"]",
+            "price": "span[aria-label*=\"Price\"]",
+            "website": "a[href^=\"http\"]:not([href*=\"google.com\"]):not([href*=\"google.co\"])",
             "fallback": {
                 "container": ".VkpGBb",
                 "websiteBtn": "a"
@@ -24,11 +24,12 @@
                 "#recaptcha",
                 ".g-recaptcha",
                 "iframe[src*=\"recaptcha\"]",
-                "iframe[src*=\"hcaptcha\"]"
+                "iframe[src*=\"hcaptcha\"]",
+                "#captcha-form"
             ]
         },
         "consent": {
-            "button": "button[aria-label=\"Accept all\"]"
+            "button": "button[aria-label=\"Accept all\"], form[action*=\"consent\"] button"
         },
         "pagination": {
             "nextButton": "a#pnnext"

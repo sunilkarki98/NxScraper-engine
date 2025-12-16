@@ -3,7 +3,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { JobWorker } from './orchestrator/worker.js';
 import { pluginManager } from './plugins/plugin-manager.js';
-import { browserPool, logger, validateEnvironment, env, scraperManager } from '@nx-scraper/shared';
+import { browserPool, logger, validateEnvironment, env } from '@nx-scraper/shared';
+import { scraperManager } from './worker/scraper-manager.js';
+import { queueWorker } from './worker/queue-worker.js';
 
 // Load environment variables
 dotenv.config();
@@ -12,7 +14,7 @@ dotenv.config();
 try {
     logger.info('🔍 Starting environment validation...');
     validateEnvironment();
-} catch (error: any) {
+} catch (error: unknown) {
     logger.fatal({ error }, 'Environment validation failed');
     process.exit(1);
 }
@@ -33,6 +35,12 @@ async function main() {
 
     scraperManager.initialize({ workerPath: workerScript });
     logger.info(`✅ ScraperManager initialized with worker: ${workerScript}`);
+
+    // Register services in DI container
+    const { bootstrapDI } = await import('./di/bootstrap.js');
+    await bootstrapDI();
+
+    logger.info('✅ Services registered in DI Container');
 
     try {
         // Load and register scraper plugins
@@ -78,7 +86,7 @@ async function main() {
         logger.info(`✅ Core Engine (${serviceType}) started successfully`);
         logger.info(`🔄 Waiting for jobs on queue: scrape-queue`);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error(error, 'Failed to start core-engine:');
         process.exit(1);
     }
@@ -91,7 +99,7 @@ async function main() {
 async function registerScrapers() {
     const availableScrapers = [
         { name: 'UniversalScraper', package: '@nx-scraper/universal-scraper/scraper' },
-        { name: 'HeavyScraper', package: '@nx-scraper/heavy-scraper/scraper' },
+        { name: 'UltraScraper', package: '@nx-scraper/ultra-scraper/scraper' },
         { name: 'GoogleScraper', package: '@nx-scraper/google-scraper/scraper' },
     ];
 
@@ -111,12 +119,13 @@ async function registerScrapers() {
             logger.info(`✅ Registered: ${name}`);
             registeredCount++;
 
-        } catch (error: any) {
-            if (error.code === 'ERR_MODULE_NOT_FOUND') {
+        } catch (error: unknown) {
+            const err = error as { code?: string; message: string };
+            if (err.code === 'ERR_MODULE_NOT_FOUND') {
                 logger.warn(`⚠️  Scraper not installed: ${name} (${pkg}) - skipping`);
                 logger.info(`   To use this scraper, install it: npm install ${pkg.split('/scraper')[0]}`);
             } else {
-                logger.error(`❌ Failed to load ${name}: ${error.message}`);
+                logger.error(`❌ Failed to load ${name}: ${err.message || String(error)}`);
                 throw error;
             }
         }

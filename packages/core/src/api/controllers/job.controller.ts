@@ -1,8 +1,14 @@
 import { Request, Response } from 'express';
-import { queueManager } from '@nx-scraper/shared';
+import { container, Tokens, QueueManager } from '@nx-scraper/shared';
 import { logger } from '@nx-scraper/shared';
 
 export class JobController {
+    private queueManager: QueueManager;
+
+    constructor(queueManager?: QueueManager) {
+        this.queueManager = queueManager || container.resolve(Tokens.QueueManager);
+    }
+
     /**
      * Get job status and result
      */
@@ -16,7 +22,7 @@ export class JobController {
             }
 
             const jobType = (type as 'scrape' | 'ai-pipeline') || 'scrape';
-            const job = await queueManager.getJob(jobType, id);
+            const job = await this.queueManager.getJob(jobType, id);
 
             if (!job) {
                 return res.status(404).json({ success: false, error: 'Job not found' });

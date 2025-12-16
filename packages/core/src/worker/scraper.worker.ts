@@ -1,74 +1,100 @@
-import { parentPort } from 'worker_threads';
-import { ScrapeOptions, logger, validateEnvironment, dragonfly } from '@nx-scraper/shared';
+import { validateEnvironment, dragonfly, type WorkerMessage, type ScrapeResult, type ScraperPlugin } from '@nx-scraper/shared';
 
-// Cache for loaded classes to avoid re-importing
-const loadedScrapers = new Map<string, any>();
+// Initialize environment
+validateEnvironment();
 
-if (!parentPort) {
-    throw new Error('This script must be run as a worker thread');
-}
+// Bootstrap DI
+import { bootstrapDI } from '../di/bootstrap.js';
+await bootstrapDI();
 
-// CRITICAL: Initialize environment and DragonflyDB connection in worker context
-// This ensures all services are ready before any scraper imports
-(async () => {
-    try {
-        validateEnvironment();
-        logger.info('🔧 Scraper Worker Thread: Environment validated');
+/**
+ * Worker-local context to avoid shared mutable state
+ * Each worker thread gets its own instance
+ */
+class WorkerContext {
+    private loadedScrapers = new Map<string, new () => ScraperPlugin>();
 
-        // Pre-connect to DragonflyDB to ensure it's ready for caching
-        await dragonfly.connect();
-        logger.info('🐉 Scraper Worker Thread: DragonflyDB connected and ready');
-
-        logger.info('✅ Scraper Worker Thread fully initialized');
-    } catch (error: any) {
-        logger.fatal({ error }, 'Worker thread initialization failed');
-        process.exit(1);
-    }
-})();
-
-parentPort.on('message', async (message: {
-    packagePath: string;
-    className: string;
-    options: ScrapeOptions
-}) => {
-    const { packagePath, className, options } = message;
-
-    try {
-        let ScraperClass = loadedScrapers.get(packagePath);
+    async loadScraper(packagePath: string, className: string): Promise<ScraperPlugin> {
+        // Check cache first
+        let ScraperClass = this.loadedScrapers.get(packagePath);
 
         if (!ScraperClass) {
-            // Dynamic import of the scraper package
-            // Using implicit 'import' which resolves node_modules relative to this file's location
-            // or standard node resolution. 
-            logger.debug(`Loading scraper: ${className} from ${packagePath}`);
-            const module = await import(packagePath);
-            ScraperClass = module[className];
+            try {
+                // Try direct import first (e.g. strict path or local alias)
+                let module: any;
+                try {
+                    module = await import(packagePath);
+                } catch (e) {
+                    // Fallback: Try scoped package import
+                    if (!packagePath.startsWith('@')) {
+                        try {
+                            module = await import(`@nx-scraper/${packagePath}`);
+                        } catch (e2) {
+                            throw e; // Throw original error if both fail
+                        }
+                    } else {
+                        throw e;
+                    }
+                }
 
-            if (!ScraperClass) {
-                throw new Error(`Class ${className} not found in ${packagePath}`);
+                const FoundClass = module[className];
+
+                if (!FoundClass) {
+                    // Try looking for default export or finding class by name in exports
+                    if (module.default && module.default.name === className) {
+                        ScraperClass = module.default as new () => ScraperPlugin;
+                    } else {
+                        throw new Error(`Class ${className} not found in ${packagePath}`);
+                    }
+                } else {
+                    ScraperClass = FoundClass as new () => ScraperPlugin;
+                }
+
+                // Cache for reuse within this worker
+                this.loadedScrapers.set(packagePath, ScraperClass);
+            } catch (error: unknown) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                throw new Error(`Failed to load scraper: ${err.message}`);
             }
-            loadedScrapers.set(packagePath, ScraperClass);
         }
 
-        const scraper = new ScraperClass();
+        if (!ScraperClass) {
+            throw new Error(`Failed to load scraper class ${className}`);
+        }
+
+        return new ScraperClass();
+    }
+}
+
+// Create worker-local context (one per worker thread)
+const workerContext = new WorkerContext();
+
+/**
+ * Worker thread handler
+ */
+export default async function (message: WorkerMessage): Promise<ScrapeResult> {
+    try {
+        // Connect to Dragonfly (lazy, per worker)
+        await dragonfly.connect();
+
+        // Load scraper using worker-local context (thread-safe)
+        const scraper = await workerContext.loadScraper(message.packagePath, message.className);
 
         // Execute scrape
-        logger.debug(`Executing scrape job: ${options.url}`);
-        const result = await scraper.scrape(options);
+        const result = await scraper.scrape(message.options);
+        return result;
 
-        // Cleanup if available
-        if (typeof scraper.cleanup === 'function') {
-            await scraper.cleanup();
-        }
-
-        parentPort?.postMessage({ success: true, result });
-
-    } catch (error: any) {
-        logger.error({ error, scraper: className }, 'Worker scrape failed');
-        parentPort?.postMessage({
+    } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        return {
             success: false,
-            error: error.message,
-            stack: error.stack
-        });
+            error: err.message,
+            metadata: {
+                url: message.options.url || '',
+                timestamp: new Date().toISOString(),
+                executionTimeMs: 0,
+                engine: 'worker-error'
+            }
+        };
     }
-});
+}

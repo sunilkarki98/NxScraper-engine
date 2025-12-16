@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/places-api.d.ts",
       "import": "./dist/places-api.js"
+    },
+    "./places-api": {
+      "types": "./dist/places-api.d.ts",
+      "import": "./dist/places-api.js"
     }
   },
   "files": [
@@ -23,7 +27,8 @@
   },
   "dependencies": {
     "@googlemaps/google-maps-services-js": "^3.4.2",
-    "@nx-scraper/shared": "*"
+    "@nx-scraper/shared": "*",
+    "@nx-scraper/google-scraper": "*"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

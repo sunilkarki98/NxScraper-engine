@@ -3,6 +3,7 @@ import { dragonfly } from '../database/dragonfly-client.js';
 import logger from '../utils/logger.js';
 import { APIKeyData, APIKeyMetadata, IAPIKeyManager, TIER_LIMITS } from '../types/api-key.interface.js';
 import bcrypt from 'bcrypt';
+import LRUCache from 'lru-cache';
 
 const SALT_ROUNDS = 10;
 const KEY_PREFIX_DEV = 'nx_sk_dev_';
@@ -11,9 +12,18 @@ const KEY_PREFIX_PROD = 'nx_pk_prod_';
 export class APIKeyManager implements IAPIKeyManager {
     private readonly keyPrefix = 'apikey:';
 
-    /**
-     * Generate a new API key
-     */
+    // L1 Cache: In-memory cache for validated API keys
+    // Reduces Redis hits and expensive bcrypt hashes
+    private readonly cache: LRUCache<string, APIKeyData>;
+
+    constructor() {
+        this.cache = new LRUCache({
+            max: 1000, // Max 1000 keys in memory per instance
+            ttl: 1000 * 60, // 60 seconds TTL (keys naturally expire/refresh)
+            allowStale: false,
+        });
+    }
+
     /**
      * Generate a new API key
      */
@@ -79,16 +89,26 @@ export class APIKeyManager implements IAPIKeyManager {
 
     /**
      * Validate an API key and return key data
-     * Now O(1) complexity!
+     * Now O(1) complexity + L1 In-Memory Caching (Zero-latency)
      */
     async validateKey(apiKey: string): Promise<APIKeyData | null> {
         try {
+            // 1. Check L1 Cache first (Fastest)
+            // Note: We cache based on the apiKey itself since we have it here. 
+            // In a real high-security env with huge memory pressure, we might hash it first for map key, 
+            // but for <1000 keys, string key is fine and faster.
+            const cachedKey = this.cache.get(apiKey);
+            if (cachedKey) {
+                // Return cached data immediately
+                return cachedKey;
+            }
+
             const client = dragonfly.getClient();
 
-            // 1. Calculate lookup hash
+            // 2. Calculate lookup hash
             const lookupHash = crypto.createHash('sha256').update(apiKey).digest('hex');
 
-            // 2. Look up the ID (O(1))
+            // 3. Look up the ID (O(1))
             const keyId = await client.get(`${this.keyPrefix}lookup:${lookupHash}`);
 
             if (!keyId) {
@@ -96,15 +116,13 @@ export class APIKeyManager implements IAPIKeyManager {
                 return null;
             }
 
-            // 3. Fetch key data (O(1))
+            // 4. Fetch key data (O(1))
             const data = await client.get(`${this.keyPrefix}id:${keyId}`);
             if (!data) return null;
 
             const keyData = JSON.parse(data) as APIKeyData;
 
-            // 4. Verify with bcrypt (Security check)
-            // Even though we found it via SHA256, we still verify the bcrypt hash
-            // to ensure the key matches exactly what was stored securely
+            // 5. Verify with bcrypt (Security check) - Expensive!
             const isValid = await bcrypt.compare(apiKey, keyData.keyHash);
 
             if (isValid) {
@@ -113,6 +131,25 @@ export class APIKeyManager implements IAPIKeyManager {
                     logger.warn({ keyId: keyData.id }, 'Attempted use of revoked API key');
                     return null;
                 }
+
+                // 6. Merge real-time stats (Atomic)
+                // We do this even for cached keys (handled by updateKeyStats), 
+                // but for fresh fetch we want latest.
+                try {
+                    const statsKey = `${this.keyPrefix}stats:${keyId}`;
+                    const stats = await client.hgetall(statsKey);
+                    if (stats && stats.requestCount) {
+                        keyData.requestCount = parseInt(stats.requestCount) + (keyData.requestCount || 0);
+                        keyData.lastUsedAt = parseInt(stats.lastUsedAt) || keyData.lastUsedAt;
+                    }
+                } catch (error: unknown) {
+                    // Stats are non-critical for authentication, but log the error
+                    logger.warn({ error, keyId }, 'Failed to fetch real-time stats, using cached data');
+                    // Proceed with authentication using cached data
+                }
+
+                // 7. Store in L1 Cache
+                this.cache.set(apiKey, keyData);
 
                 return keyData;
             }
@@ -176,22 +213,17 @@ export class APIKeyManager implements IAPIKeyManager {
         }
     }
 
-    /**
-     * Update key usage statistics
-     */
     async updateKeyStats(keyId: string): Promise<void> {
         try {
             const client = dragonfly.getClient();
-            const keyPath = `${this.keyPrefix}id:${keyId}`;
+            // Use separate stats hash for atomicity (avoid JSON race conditions)
+            const statsKey = `${this.keyPrefix}stats:${keyId}`;
 
-            const data = await client.get(keyPath);
-            if (!data) return;
+            await client.hincrby(statsKey, 'requestCount', 1);
+            await client.hset(statsKey, 'lastUsedAt', Date.now());
 
-            const keyData = JSON.parse(data) as APIKeyData;
-            keyData.lastUsedAt = Date.now();
-            keyData.requestCount++;
-
-            await client.set(keyPath, JSON.stringify(keyData));
+            // Note: We no longer update the main JSON blob for stats.
+            // validateKey needs to merge this.
         } catch (error) {
             logger.warn({ error, keyId }, 'Failed to update key stats');
         }
@@ -207,6 +239,7 @@ export class APIKeyManager implements IAPIKeyManager {
         tier: string;
         rateLimit: { maxRequests: number; windowSeconds: number };
         name?: string;
+        role?: 'user' | 'admin' | 'service'; // Protocol Update
     }): Promise<string> {
         try {
             const keyId = crypto.randomUUID();
@@ -217,7 +250,7 @@ export class APIKeyManager implements IAPIKeyManager {
                 keyHash: data.keyHash, // Already hashed by admin panel
                 name: data.name ?? 'External API Key',
                 tier: data.tier as any,
-                role: 'user', // Default external keys to user role for now
+                role: (data.role as any) || 'user', // Allow role assignment (SaaS Admin Support)
                 userId: data.userId,
                 createdAt: Date.now(),
                 lastUsedAt: Date.now(),
@@ -257,8 +290,88 @@ export class APIKeyManager implements IAPIKeyManager {
             throw error;
         }
     }
+    /**
+     * Ensure the Admin Secret is registered as a valid API key
+     * Call this on startup to replace the "backdoor" check
+     */
+    async ensureAdminKey(adminSecret: string): Promise<void> {
+        try {
+            if (!adminSecret || adminSecret.length < 20) {
+                logger.warn('Skipping Admin Key registration: Secret too short or missing');
+                return;
+            }
+
+            // 1. Check if already exists (Optimization)
+            const lookupHash = crypto.createHash('sha256').update(adminSecret).digest('hex');
+            const client = dragonfly.getClient();
+            const existingId = await client.get(`${this.keyPrefix}lookup:${lookupHash}`);
+
+            if (existingId) {
+                // Ensure it's active and has admin role
+                const data = await client.get(`${this.keyPrefix}id:${existingId}`);
+                if (data) {
+                    const keyData = JSON.parse(data) as APIKeyData;
+                    if (keyData.role !== 'admin' || !keyData.isActive) {
+                        logger.info({ keyId: existingId }, 'Updating existing Admin Key permissions');
+                        keyData.role = 'admin';
+                        keyData.isActive = true;
+                        keyData.tier = 'pro';
+                        await client.set(`${this.keyPrefix}id:${existingId}`, JSON.stringify(keyData));
+                    }
+                    return; // Already registered
+                }
+            }
+
+            logger.info('🔐 Registering Admin Secret as secure API Key...');
+
+            // 2. Hash the secret securely
+            const keyHash = await bcrypt.hash(adminSecret, SALT_ROUNDS);
+
+            // 3. Create Key Data
+            const keyId = crypto.randomUUID();
+            const keyData: APIKeyData = {
+                id: keyId,
+                keyHash,
+                name: 'Master Admin',
+                tier: 'pro',
+                role: 'admin',      // Critical
+                userId: 'system-admin',
+                createdAt: Date.now(),
+                lastUsedAt: Date.now(),
+                requestCount: 0,
+                isActive: true,
+                rateLimit: { maxRequests: 1000, windowSeconds: 60 } // High limits for admin
+            };
+
+            // 4. Store in Redis
+            // Store ID mapper
+            await client.set(`${this.keyPrefix}id:${keyId}`, JSON.stringify(keyData));
+            // Store O(1) Lookup
+            await client.set(`${this.keyPrefix}lookup:${lookupHash}`, keyId);
+            // Add to indices
+            await client.sadd(`${this.keyPrefix}user:system-admin`, keyId);
+            await client.sadd(`${this.keyPrefix}all`, keyId);
+
+            logger.info({ keyId }, '✅ Admin Secret securely registered');
+
+        } catch (error) {
+            logger.error({ error }, 'Failed to ensure Admin Key registration');
+            throw error;
+        }
+    }
 }
 
-// Singleton instance
-export const apiKeyManager = new APIKeyManager();
+
+
+/**
+ * Factory function to create APIKeyManager instance
+ */
+export function createApiKeyManager(): APIKeyManager {
+    return new APIKeyManager();
+}
+
+/**
+ * @deprecated Use createApiKeyManager() or inject via DI container
+ */
+export const apiKeyManager = createApiKeyManager();
 

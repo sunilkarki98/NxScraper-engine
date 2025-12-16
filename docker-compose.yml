@@ -74,7 +74,7 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-}
-      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: llama3
     ports:
       - "3000:3000"
@@ -91,6 +91,8 @@ services:
       start_period: 40s
     networks:
       - local-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   ######################################
@@ -118,7 +120,7 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-}
-      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: llama3
     volumes:
       - /dev/shm:/dev/shm # required for Chromium in Playwright
@@ -133,6 +135,8 @@ services:
       start_period: 40s
     networks:
       - local-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 #############################
@@ -148,3 +152,4 @@ volumes:
 networks:
   local-network:
     driver: bridge
+    name: nxscraper_net

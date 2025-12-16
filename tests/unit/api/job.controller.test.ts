@@ -1,22 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { JobController } from '@core/api/controllers/job.controller';
 import { createMockRequest, createMockResponse } from '../../utils/test-helpers';
-
-// Mock queue manager
-vi.mock('@nx-scraper/shared/queue/queue-manager', () => ({
-    queueManager: {
-        getJob: vi.fn()
-    }
-}));
-
-import { queueManager } from '@nx-scraper/shared/queue/queue-manager';
+import { container, Tokens } from '@nx-scraper/shared';
 
 describe('JobController', () => {
     let controller: JobController;
+    let mockQueueManager: any;
 
     beforeEach(() => {
-        controller = new JobController();
+        const mockDragonfly = {
+            getClient: vi.fn(),
+            getSubscriber: vi.fn(),
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+            execute: vi.fn()
+        };
+        container.register(Tokens.Dragonfly, { useValue: mockDragonfly });
+
+        // Mock QueueManager instance
+        mockQueueManager = {
+            getJob: vi.fn()
+        };
+
         vi.clearAllMocks();
+        // Inject mockQueueManager into the controller
+        controller = new JobController(mockQueueManager);
     });
 
     describe('getJobStatus', () => {
@@ -48,7 +56,7 @@ describe('JobController', () => {
                 const req = createMockRequest({}, { type: 'scrape' }, { id: 'non-existent' });
                 const res = createMockResponse();
 
-                vi.mocked(queueManager.getJob).mockResolvedValue(null);
+                mockQueueManager.getJob.mockResolvedValue(null);
 
                 await controller.getJobStatus(req, res);
 
@@ -71,11 +79,11 @@ describe('JobController', () => {
                     getState: vi.fn().mockResolvedValue('completed')
                 };
 
-                vi.mocked(queueManager.getJob).mockResolvedValue(completedJob as any);
+                mockQueueManager.getJob.mockResolvedValue(completedJob as any);
 
                 await controller.getJobStatus(req, res);
 
-                expect(queueManager.getJob).toHaveBeenCalledWith('scrape', 'job-123');
+                expect(mockQueueManager.getJob).toHaveBeenCalledWith('scrape', 'job-123');
                 expect(res.json).toHaveBeenCalledWith({
                     success: true,
                     data: {
@@ -102,7 +110,7 @@ describe('JobController', () => {
                     getState: vi.fn().mockResolvedValue('failed')
                 };
 
-                vi.mocked(queueManager.getJob).mockResolvedValue(failedJob as any);
+                mockQueueManager.getJob.mockResolvedValue(failedJob as any);
 
                 await controller.getJobStatus(req, res);
 
@@ -128,7 +136,7 @@ describe('JobController', () => {
                     getState: vi.fn().mockResolvedValue('active')
                 };
 
-                vi.mocked(queueManager.getJob).mockResolvedValue(activeJob as any);
+                mockQueueManager.getJob.mockResolvedValue(activeJob as any);
 
                 await controller.getJobStatus(req, res);
 
@@ -152,11 +160,11 @@ describe('JobController', () => {
                     getState: vi.fn().mockResolvedValue('waiting')
                 };
 
-                vi.mocked(queueManager.getJob).mockResolvedValue(job as any);
+                mockQueueManager.getJob.mockResolvedValue(job as any);
 
                 await controller.getJobStatus(req, res);
 
-                expect(queueManager.getJob).toHaveBeenCalledWith('scrape', 'job-123');
+                expect(mockQueueManager.getJob).toHaveBeenCalledWith('scrape', 'job-123');
             });
 
             it('should handle ai-pipeline job type', async () => {
@@ -168,11 +176,11 @@ describe('JobController', () => {
                     getState: vi.fn().mockResolvedValue('completed')
                 };
 
-                vi.mocked(queueManager.getJob).mockResolvedValue(job as any);
+                mockQueueManager.getJob.mockResolvedValue(job as any);
 
                 await controller.getJobStatus(req, res);
 
-                expect(queueManager.getJob).toHaveBeenCalledWith('ai-pipeline', 'ai-job-123');
+                expect(mockQueueManager.getJob).toHaveBeenCalledWith('ai-pipeline', 'ai-job-123');
                 expect(res.json).toHaveBeenCalledWith(
                     expect.objectContaining({
                         data: expect.objectContaining({
@@ -188,7 +196,7 @@ describe('JobController', () => {
                 const req = createMockRequest({}, {}, { id: 'job-123' });
                 const res = createMockResponse();
 
-                vi.mocked(queueManager.getJob).mockRejectedValue(new Error('Queue error'));
+                mockQueueManager.getJob.mockRejectedValue(new Error('Queue error'));
 
                 await controller.getJobStatus(req, res);
 
@@ -208,7 +216,7 @@ describe('JobController', () => {
                     getState: vi.fn().mockRejectedValue(new Error('State error'))
                 };
 
-                vi.mocked(queueManager.getJob).mockResolvedValue(job as any);
+                mockQueueManager.getJob.mockResolvedValue(job as any);
 
                 await controller.getJobStatus(req, res);
 
@@ -231,7 +239,7 @@ describe('JobController', () => {
                     progress: 0
                 };
 
-                vi.mocked(queueManager.getJob).mockResolvedValue(job as any);
+                mockQueueManager.getJob.mockResolvedValue(job as any);
 
                 await controller.getJobStatus(req, res);
 
@@ -255,11 +263,11 @@ describe('JobController', () => {
                     getState: vi.fn().mockResolvedValue('completed')
                 };
 
-                vi.mocked(queueManager.getJob).mockResolvedValue(job as any);
+                mockQueueManager.getJob.mockResolvedValue(job as any);
 
                 await controller.getJobStatus(req, res);
 
-                expect(queueManager.getJob).toHaveBeenCalledWith('scrape', '12345');
+                expect(mockQueueManager.getJob).toHaveBeenCalledWith('scrape', '12345');
             });
         });
     });

@@ -238,3 +238,23 @@ export const ValidationSchema = z.object({
 });
 
 export type Validation = z.infer<typeof ValidationSchema>;
+
+/**
+ * Action Engine Schemas
+ */
+export const ActionPlanSchema = z.object({
+    actions: z.array(
+        z.object({
+            type: z.enum(['click', 'fill', 'wait', 'scroll', 'select', 'hover']),
+            selector: z.string().optional(),
+            value: z.string().optional(),
+            description: z.string(), // Reason for this action
+            mandatory: z.boolean().default(true)
+        })
+    ),
+    confidence: z.number().min(0).max(1),
+    reasoning: z.string()
+});
+
+export type ActionPlan = z.infer<typeof ActionPlanSchema>;
+export type ActionStep = ActionPlan['actions'][0];

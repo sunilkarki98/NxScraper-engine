@@ -1,7 +1,6 @@
 import { ChromaClient, Collection } from 'chromadb';
 import logger from '../../utils/logger.js';
 import crypto from 'crypto';
-import { GeminiEmbeddingFunction } from './embeddings.js';
 import { env } from '../../utils/env-validator.js';
 
 export interface VectorDocument {
@@ -40,10 +39,12 @@ export class VectorStore {
         if (this.collection) return;
 
         try {
-            const embedder = new GeminiEmbeddingFunction();
+            // We handle embeddings manually via EmbeddingService, so we don't need a collection-level embedder
+            // but Chroma might require one if valid or we can pass { } as placeholder?
+            // Actually, let's just use the default or undefined if typed allowed.
+            // If checked `chromadb` types, embeddingFunction is optional.
             this.collection = await this.client!.getOrCreateCollection({
                 name: this.collectionName,
-                embeddingFunction: embedder,
                 metadata: { bg_color: '#000000' }
             });
             logger.info('🧠 Vector Store: Connected to ChromaDB');
@@ -115,4 +116,14 @@ export class VectorStore {
     }
 }
 
-export const vectorStore = new VectorStore();
+/**
+ * Factory function to create VectorStore instance
+ */
+export function createVectorStore(): VectorStore {
+    return new VectorStore();
+}
+
+/**
+ * @deprecated Use createVectorStore() or inject via DI container
+ */
+export const vectorStore = createVectorStore();

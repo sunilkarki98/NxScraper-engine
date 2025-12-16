@@ -51,13 +51,16 @@ export class AntiBlockingModule implements IAIModule<AntiBlockingInput, AntiBloc
             }
 
             const llm = this.llmManager.getProvider(options?.provider);
-            const systemPrompt = ANTI_BLOCKING_SYSTEM_PROMPT;
-            const userPrompt = ANTI_BLOCKING_USER_PROMPT(
-                input.html,
-                input.statusCode,
-                input.html,
-                input.headers
-            );
+            const systemPrompt = `You are an expert in Web Scraping Evasion.
+Analyze the HTML and suggested if the page is blocking automated access (WAF, Captcha, 403).
+Return a classification and suggested evasion technique.`;
+
+            const userPrompt = `
+Analyze this page content:
+URL: ${input.url}
+HTML Snippet:
+${input.html?.substring(0, 2000) || 'No HTML provided'}
+`;
 
             const llmData = await llm.generateJSON<AntiBlocking>(
                 userPrompt,

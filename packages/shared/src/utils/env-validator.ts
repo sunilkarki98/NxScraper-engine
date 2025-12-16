@@ -35,8 +35,8 @@ const EnvironmentSchema = z.object({
         'Required for session encryption. Generate with: openssl rand -hex 32'
     ),
 
-    ADMIN_SECRET: z.string().min(20).describe(
-        'Required for admin operations. Generate with: openssl rand -base64 32'
+    ADMIN_SECRET: z.string().min(32).describe(
+        'Required for admin operations (minimum 32 characters). Generate with: openssl rand -base64 32'
     ),
 
     // ==========================================
@@ -55,10 +55,27 @@ const EnvironmentSchema = z.object({
     GEMINI_API_KEY: z.string().min(20).optional().or(z.literal('')), // Alias for GOOGLE_API_KEY
 
     // ==========================================
+
+
+    // Generic RAG/Embedding Support
+    GENERIC_EMBEDDING_BASE_URL: z.string().optional(),
+    GENERIC_EMBEDDING_API_KEY: z.string().optional(),
+    GENERIC_EMBEDDING_MODEL: z.string().default('sentence-transformers/all-MiniLM-L6-v2'),
+
+    // ==========================================
+    // Browser Configuration
+    // ==========================================
+
+    // ==========================================
     // Ollama (Local LLM)
     // ==========================================
-    OLLAMA_BASE_URL: z.string().url().optional().default('http://localhost:11434'),
+    OLLAMA_BASE_URL: z.string().url().optional(),
     OLLAMA_MODEL: z.string().optional().default('llama3'),
+
+    // ==========================================
+    // Browser Configuration
+    // ==========================================
+    BROWSER_WS_ENDPOINT: z.string().optional().describe('WebSocket endpoint for remote browser (e.g. ws://browserless:3000)'),
 
     // ==========================================
     // Vector Database
@@ -75,6 +92,7 @@ const EnvironmentSchema = z.object({
     QUEUE_REMOVE_ON_FAIL: positiveInt.optional().default(1000),
     JOB_TIMEOUT_MS: positiveInt.optional().default(120000),
     JOB_ATTEMPTS: positiveInt.optional().default(3),
+    MAX_WORKER_THREADS: positiveInt.optional().default(4),
 
     // ==========================================
     // Logging & Monitoring
@@ -259,7 +277,7 @@ function validateBusinessRules(env: Environment): void {
         }
     }
 
-    // Rule 3: Reject weak/default secrets
+    // Rule 3: Reject weak/default secrets (STRICT - fails in all environments)
     const weakSecrets = [
         'your-super-secret-jwt-key-change-this',
         'nxscrape-admin122498',
@@ -271,22 +289,24 @@ function validateBusinessRules(env: Environment): void {
     ];
 
     const adminSecret = env.ADMIN_SECRET || '';
+
+    // Check for known weak patterns
     if (weakSecrets.some(weak => adminSecret.toLowerCase().includes(weak.toLowerCase()))) {
-        logger.error('🚨 SECURITY CRITICAL: Weak ADMIN_SECRET detected!');
-        if (env.NODE_ENV === 'production') {
-            throw new Error(
-                'ADMIN_SECRET contains a weak/default value. Generate a strong secret with: openssl rand -base64 32'
-            );
-        } else {
-            logger.warn('⚠️  Using weak ADMIN_SECRET in development. This is ONLY acceptable for testing!');
-        }
+        const error = new Error(
+            'ADMIN_SECRET contains a weak/default value. Generate a strong secret with: openssl rand -base64 32'
+        );
+        logger.error({ error }, '🚨 SECURITY CRITICAL: Weak ADMIN_SECRET detected!');
+        throw error;
     }
 
-    if (adminSecret.length < 20) {
-        logger.error('🚨 SECURITY CRITICAL: ADMIN_SECRET is too short (minimum 20 characters)');
-        if (env.NODE_ENV === 'production') {
-            throw new Error('ADMIN_SECRET must be at least 20 characters long');
-        }
+    // Minimum length check is now enforced by Zod schema (32 chars)
+    // This additional check is defensive programming
+    if (adminSecret.length < 32) {
+        const error = new Error(
+            'ADMIN_SECRET must be at least 32 characters long. Generate with: openssl rand -base64 32'
+        );
+        logger.error({ error }, '🚨 SECURITY CRITICAL: ADMIN_SECRET too short');
+        throw error;
     }
 
     // Rule 4: Validate proxy configuration

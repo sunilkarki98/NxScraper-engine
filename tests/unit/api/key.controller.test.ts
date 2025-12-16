@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KeyController } from '@core/api/controllers/key.controller';
 import { createMockRequest, createMockResponse } from '../../utils/test-helpers';
+import { container, Tokens } from '@nx-scraper/shared';
 
 // Fix hoisting issue
 const mocks = vi.hoisted(() => {
@@ -18,27 +19,36 @@ const mocks = vi.hoisted(() => {
         },
         logger: {
             info: vi.fn(),
-            error: vi.fn()
+            error: vi.fn(),
+            warn: vi.fn()
         }
     };
 });
 
-vi.mock('@nx-scraper/shared/auth/api-key-manager', () => ({
-    apiKeyManager: mocks.apiKeyManager
-}));
-
-vi.mock('@nx-scraper/shared/auth/external-key-manager', () => ({
-    externalKeyManager: mocks.externalKeyManager
-}));
-
-vi.mock('@nx-scraper/shared/utils/logger', () => ({
-    default: mocks.logger
-}));
+vi.mock('@nx-scraper/shared', async () => {
+    return {
+        apiKeyManager: mocks.apiKeyManager,
+        externalKeyManager: mocks.externalKeyManager,
+        logger: mocks.logger,
+        container: {
+            resolve: vi.fn().mockImplementation((token: any) => {
+                if (token === 'ApiKeyManager') return mocks.apiKeyManager;
+                return undefined;
+            }),
+            register: vi.fn() // Stub for compatibility if needed
+        },
+        Tokens: {
+            ApiKeyManager: 'ApiKeyManager'
+        }
+    };
+});
 
 describe('KeyController', () => {
     let controller: KeyController;
 
     beforeEach(() => {
+        // Reset container resolve mock if needed, but the implementation above handles it.
+        // We can just instantiate the controller.
         controller = new KeyController();
         vi.clearAllMocks();
     });

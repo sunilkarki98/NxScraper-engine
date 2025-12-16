@@ -26,6 +26,7 @@
         "@nx-scraper/shared": "*",
         "@sentry/node": "^10.29.0",
         "@sentry/profiling-node": "^10.29.0",
+        "bullmq": "^5.66.0",
         "compression": "^1.8.1",
         "cors": "^2.8.5",
         "dotenv": "^16.3.1",
@@ -33,8 +34,8 @@
         "express-rate-limit": "^8.2.1",
         "express-validator": "^7.3.1",
         "helmet": "^8.1.0",
-        "pg": "^8.16.3",
         "pino-pretty": "^12.0.0",
+        "piscina": "^5.1.4",
         "prom-client": "^15.1.3",
         "swagger-jsdoc": "^6.2.8",
         "swagger-ui-express": "^5.0.0",
@@ -42,14 +43,14 @@
     },
     "peerDependencies": {
         "@nx-scraper/google-scraper": "*",
-        "@nx-scraper/heavy-scraper": "*",
+        "@nx-scraper/ultra-scraper": "*",
         "@nx-scraper/universal-scraper": "*"
     },
     "peerDependenciesMeta": {
         "@nx-scraper/google-scraper": {
             "optional": true
         },
-        "@nx-scraper/heavy-scraper": {
+        "@nx-scraper/ultra-scraper": {
             "optional": true
         },
         "@nx-scraper/universal-scraper": {
@@ -61,7 +62,6 @@
         "@types/cors": "^2.8.19",
         "@types/express": "^5.0.6",
         "@types/node": "^20.19.25",
-        "@types/pg": "^8.15.6",
         "@types/swagger-jsdoc": "^6.0.4",
         "@types/swagger-ui-express": "^4.1.6",
         "@vitest/coverage-v8": "^4.0.15",

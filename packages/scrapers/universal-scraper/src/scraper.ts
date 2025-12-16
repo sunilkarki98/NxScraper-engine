@@ -1,15 +1,14 @@
-import { IScraper, ScrapeOptions, ScrapeResult } from '@nx-scraper/shared';
+import { BasePlaywrightScraper, ScrapeOptions, ScrapeResult, container, Tokens } from '@nx-scraper/shared';
 import { Page } from 'playwright';
-import { browserPool } from '@nx-scraper/shared';
 import { logger } from '@nx-scraper/shared';
 
 /**
  * Universal Scraper
  * Playwright-based scraper for general-purpose web scraping
  */
-export class UniversalScraper implements IScraper {
+export class UniversalScraper extends BasePlaywrightScraper {
     name = 'universal-scraper';
-    version = '1.0.0';
+    version = '2.0.0'; // Refactored to Base
 
     // private browser: Browser | null = null; // Removed, handled by pool
 
@@ -24,88 +23,57 @@ export class UniversalScraper implements IScraper {
     }
 
     /**
-     * Performs web scraping using Playwright
+     * Core scraping logic implemented from Base Class
+     * No need to handle Browser acquisition or try/catch/finally here!
      */
-    /**
-     * Performs web scraping using Playwright via BrowserPool
-     */
-    async scrape(options: ScrapeOptions): Promise<ScrapeResult> {
-        const startTime = Date.now();
-        let instanceId: string | null = null;
-        let page: Page | null = null;
-        let usedProxyId: string | undefined;
-
-        try {
-            // Acquire page from pool (Playwright engine)
-            const result = await browserPool.acquirePage({
-                engine: 'playwright',
-                proxy: options.proxy,
-                headless: true,
-                userAgent: options.userAgent,
-                wsEndpoint: process.env.BROWSER_WS_ENDPOINT
-            });
-
-            page = result.page as Page;
-            instanceId = result.instanceId;
-
-            // Set timeout
-            page.setDefaultTimeout(options.timeout || 30000);
-
-            // Navigate to URL
-            await page.goto(options.url, { waitUntil: 'domcontentloaded' });
-
-            // Optional: Wait for specific selector
-            if (options.waitForSelector) {
-                await page.waitForSelector(options.waitForSelector, { timeout: 5000 });
-            }
-
-            // Extract data
-            const html = await page.content();
-            const title = await page.title();
-            const url = page.url();
-
-            // Optional: Take screenshot
-            let screenshot;
-            if (options.screenshot) {
-                screenshot = await page.screenshot({ fullPage: true });
-            }
-
-            return {
-                success: true,
-                data: {
-                    html,
-                    title,
-                    url,
-                    screenshot: screenshot ? screenshot.toString('base64') : undefined
-                },
-                metadata: {
-                    url: options.url,
-                    timestamp: new Date().toISOString(),
-                    executionTimeMs: Date.now() - startTime,
-                    engine: this.name,
-                    proxyUsed: options.proxy
-                }
-            };
-
-        } catch (error: unknown) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            logger.error({ err }, `Universal scraper error for ${options.url}`);
-
-            return {
-                success: false,
-                error: err.message,
-                metadata: {
-                    url: options.url,
-                    timestamp: new Date().toISOString(),
-                    executionTimeMs: Date.now() - startTime,
-                    engine: this.name
-                }
-            };
-        } finally {
-            if (instanceId && page) {
-                await browserPool.releasePage(instanceId, page);
-            }
+    protected async parse(page: Page, options: ScrapeOptions): Promise<ScrapeResult> {
+        // Optional: Wait for specific selector
+        if (options.waitForSelector) {
+            await page.waitForSelector(options.waitForSelector, { timeout: 5000 });
         }
+
+        // 🛡️ ANTI-BLOCKING DETECTION
+        const aiEngine = container.resolve(Tokens.AIEngine);
+        const html = await page.content();
+        const blockingCheck = await aiEngine.antiBlocking.execute({
+            url: page.url(),
+            html: html,
+            statusCode: 200
+        });
+
+        if (blockingCheck.data?.blockDetected) {
+            logger.warn({
+                blockType: blockingCheck.data.blockType,
+                confidence: blockingCheck.data.confidence
+            }, '🚫 Anti-blocking system detected potential block');
+        }
+
+        // Extract data
+        const title = await page.title();
+        const url = page.url();
+
+        // Optional: Take screenshot
+        let screenshot;
+        if (options.screenshot) {
+            screenshot = await page.screenshot({ fullPage: true });
+        }
+
+        return {
+            success: true,
+            data: {
+                title,
+                url,
+                html: options.features?.includes('html') ? html : undefined,
+                screenshot: screenshot ? screenshot.toString('base64') : undefined,
+                text: await page.evaluate(() => document.body.innerText) // Basic text extraction
+            },
+            metadata: {
+                url: options.url,
+                timestamp: new Date().toISOString(),
+                executionTimeMs: 0, // Calculated by base
+                engine: this.name
+            }
+        };
     }
 
     /**

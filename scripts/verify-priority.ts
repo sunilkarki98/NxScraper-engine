@@ -1,8 +1,9 @@
 
-import { queueManager } from '../packages/shared/src/queue/queue-manager';
+import { createQueueManager } from '../packages/shared/src/queue/queue-manager';
 
 async function verifyPriority() {
     console.log('🚀 Verifying Priority Queue Logic...');
+    const queueManager = createQueueManager();
 
     try {
         // Add a High Priority Job
