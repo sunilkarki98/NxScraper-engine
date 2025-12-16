@@ -68,7 +68,8 @@ async function main() {
         // Start Worker if needed
         let worker: JobWorker | null = null;
         if (serviceType === 'worker' || serviceType === 'all') {
-            worker = new JobWorker();
+            // Only enable worker HTTP server if running standalone
+            worker = new JobWorker({ enableHttpServer: serviceType === 'worker' });
             logger.info(`✅ Worker module started (Queue: scrape-queue)`);
         }
 

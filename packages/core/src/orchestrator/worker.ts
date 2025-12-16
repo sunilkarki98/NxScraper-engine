@@ -21,7 +21,7 @@ export class JobWorker {
     private router = new Router();
     private httpServer?: http.Server;
 
-    constructor() {
+    constructor(config: { enableHttpServer?: boolean } = {}) {
         // Initialize metrics
         initMetrics();
 
@@ -30,8 +30,10 @@ export class JobWorker {
             if (systemMonitor) systemMonitor.start();
         });
 
-        // Start request routing/metrics server
-        this.startMetricsServer();
+        // Start request routing/metrics server if enabled
+        if (config.enableHttpServer !== false) {
+            this.startMetricsServer();
+        }
 
         const connectionUrl = new URL(env.DRAGONFLY_URL);
 
