@@ -36,9 +36,11 @@ export class BrowserPool {
 
         // Startup Reaper (Principal Audit Fix)
         // Ensure no zombie processes from previous crashes exist (Worker only)
+        /*
         if (process.env.SERVICE_TYPE === 'worker') {
             this.killOrphans().catch(err => logger.error({ err }, 'Failed to run startup reaper'));
         }
+        */
     }
 
     /**
