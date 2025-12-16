@@ -1,6 +1,6 @@
 import { Counter, Gauge, Histogram, collectDefaultMetrics } from 'prom-client';
 import { logger } from '@nx-scraper/shared';
-import { register } from '@nx-scraper/shared/observability/metrics';
+import { register } from '@nx-scraper/shared';
 
 // Export register so other local modules can use it if needed (but prefer importing from shared)
 export { register };
@@ -105,7 +105,7 @@ export const apiKeyValidationFailures = new Counter({
 // Helper Functions
 // ============================================
 
-import { scrapesTotal, activeScrapers } from '@nx-scraper/shared/observability/metrics.js';
+import { scrapesTotal, activeScrapers } from '@nx-scraper/shared';
 
 /**
  * Update scrape metrics (Legacy Helper - Prefer using BaseScraper internal instrumentation)
@@ -159,7 +159,7 @@ export function recordError(errorType: string, severity: 'low' | 'medium' | 'hig
 /**
  * Initialize default metrics collection
  */
-import { initMetrics as initSharedMetrics } from '@nx-scraper/shared/observability/metrics';
+import { initMetrics as initSharedMetrics } from '@nx-scraper/shared';
 
 export function initMetrics(): void {
     // Collect default Node.js metrics via shared module

@@ -55,6 +55,7 @@ export * from './services/evasion.service.js';
 export * from './services/grid.service.js';
 export * from './services/scraper-intelligence.js';
 export * from './observability/system-monitor.js';
+export * from './observability/metrics.js';
 
 // Types
 export * from './types/api-key.interface.js';
