@@ -11,7 +11,6 @@ import {
     createProxyManager,
     createEmbeddingService,
     createVectorStore,
-    createVectorStore,
     createAIEngine,
     createEventBus,
     RouterStatsService,
