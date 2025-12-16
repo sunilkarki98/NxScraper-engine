@@ -3,9 +3,9 @@ import { validateEnvironment, dragonfly, type WorkerMessage, type ScrapeResult, 
 // Initialize environment
 validateEnvironment();
 
-// Bootstrap DI
-import { bootstrapDI } from '../di/bootstrap.js';
-await bootstrapDI();
+// Note: We do NOT call bootstrapDI() here because worker threads cannot
+// initialize QueueWorker or ScraperManager (they use Piscina/BullMQ which
+// are main-thread only). Services will be lazy-loaded via DI when needed.
 
 /**
  * Worker-local context to avoid shared mutable state
