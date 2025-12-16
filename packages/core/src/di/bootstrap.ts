@@ -11,8 +11,10 @@ import {
     createProxyManager,
     createEmbeddingService,
     createVectorStore,
+    createVectorStore,
     createAIEngine,
     createEventBus,
+    RouterStatsService,
     logger
 } from '@nx-scraper/shared';
 import { queueWorker } from '../worker/queue-worker.js';
@@ -28,6 +30,7 @@ export async function bootstrapDI(): Promise<void> {
     container.registerFactory(Tokens.QueueManager, () => createQueueManager(), 'singleton');
     container.registerFactory(Tokens.CacheService, () => createCacheService(), 'singleton');
     container.registerFactory(Tokens.RateLimiter, () => createRateLimiter(), 'singleton');
+    container.registerFactory(Tokens.RouterStats, () => new RouterStatsService(), 'singleton');
 
     // Auth & Network services (Phase 2A)
     container.registerFactory(Tokens.ApiKeyManager, () => createApiKeyManager(), 'singleton');
