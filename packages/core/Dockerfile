@@ -56,8 +56,8 @@ COPY packages packages/
 
 # Build all packages
 RUN npm run build -w @nx-scraper/shared && \
-    npm run build -w @nx-scraper/google-places && \
     npm run build -w @nx-scraper/google-scraper && \
+    npm run build -w @nx-scraper/google-places && \
     npm run build -w @nx-scraper/ultra-scraper && \
     npm run build -w @nx-scraper/universal-scraper && \
     npm run build -w @nx-scraper/core
