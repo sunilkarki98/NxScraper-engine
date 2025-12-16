@@ -8,6 +8,6 @@ const jobController = new JobController();
 // Protect all job routes
 router.use(requireAPIKey);
 
-router.get('/:id', jobController.getJobStatus);
+router.get('/:id', (req, res) => jobController.getJobStatus(req, res));
 
 export default router;
