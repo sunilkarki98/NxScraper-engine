@@ -1,11 +1,15 @@
-import { validateEnvironment, dragonfly, type WorkerMessage, type ScrapeResult, type ScraperPlugin } from '@nx-scraper/shared';
+import { validateEnvironment, dragonfly, logger, type WorkerMessage, type ScrapeResult, type ScraperPlugin } from '@nx-scraper/shared';
 
 // Initialize environment
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { queueWorker } from './queue-worker.js';
 validateEnvironment();
 
-// Note: We do NOT call bootstrapDI() here because worker threads cannot
-// initialize QueueWorker or ScraperManager (they use Piscina/BullMQ which
-// are main-thread only). Services will be lazy-loaded via DI when needed.
+// Bootstrap worker-safe DI services
+import { bootstrapWorkerDI } from '../di/bootstrap-worker.js';
+await bootstrapWorkerDI();
 
 /**
  * Worker-local context to avoid shared mutable state
@@ -86,6 +90,8 @@ export default async function (message: WorkerMessage): Promise<ScrapeResult> {
 
     } catch (error: unknown) {
         const err = error instanceof Error ? error : new Error(String(error));
+        logger.error({ error: err, message: message.options.url }, 'Worker execution failed');
+
         return {
             success: false,
             error: err.message,
@@ -93,7 +99,9 @@ export default async function (message: WorkerMessage): Promise<ScrapeResult> {
                 url: message.options.url || '',
                 timestamp: new Date().toISOString(),
                 executionTimeMs: 0,
-                engine: 'worker-error'
+                engine: message.className || 'worker-error',
+                errorStack: err.stack,
+                errorType: err.name
             }
         };
     }

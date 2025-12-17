@@ -150,7 +150,9 @@ export class BrowserPool {
             instance.totalPagesCreated = (instance.totalPagesCreated || 0) + 1;
             instance.lastUsedAt = Date.now();
 
-            logger.info(`📄 Page acquired from ${instance.id} (${instance.pageCount} active)`);
+            logger.info(`📄 Page acquired from ${instance.id} (${instance.pageCount} active)`)
+
+                ;
 
             return {
                 browser: instance.browser,
@@ -158,7 +160,15 @@ export class BrowserPool {
                 instanceId: instance.id
             };
         } catch (error) {
-            logger.error({ error, instanceId: instance.id }, 'Failed to create page on browser instance');
+            // CRITICAL: Log page creation failures
+            logger.error({
+                error,
+                instanceId: instance.id,
+                engine: instance.engine,
+                pageCount: instance.pageCount,
+                errorMessage: error instanceof Error ? error.message : String(error)
+            }, '❌ Failed to create page on browser instance');
+
             // Circuit Breaker logic...
             if (this.browsers.includes(instance)) {
                 logger.warn(`♻️ Recycling potentially corrupted browser: ${instance.id}`);

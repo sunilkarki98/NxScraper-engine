@@ -33,19 +33,25 @@ export class JobController {
             const error = job.failedReason;
             const progress = job.progress;
 
-            res.json({
-                success: true,
-                data: {
-                    id: job.id,
-                    type: jobType,
-                    state,
-                    progress,
-                    result,
-                    error,
-                    createdAt: job.timestamp,
-                    finishedAt: job.finishedOn
-                }
-            });
+            // CRITICAL: Include full error details for failed jobs
+            const responseData = {
+                id: job.id,
+                type: jobType,
+                state: state || 'unknown',
+                progress: progress || 0,
+                result: result,
+                createdAt: job.timestamp,
+                finishedAt: job.finishedOn,
+                // Include error details if job failed
+                error: error ? {
+                    message: error,
+                    stack: job.stacktrace, // Assuming stacktrace is available on the job object
+                    type: job.data?.errorName, // Assuming errorName is stored in job.data
+                    failurePoint: job.data?.failurePoint // Assuming failurePoint is stored in job.data
+                } : undefined
+            };
+
+            return res.json({ success: true, data: responseData });
         } catch (error) {
             logger.error({ error }, 'Failed to get job status');
             res.status(500).json({ success: false, error: 'Internal server error' });

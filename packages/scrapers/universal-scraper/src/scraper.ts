@@ -1,6 +1,6 @@
 import { BasePlaywrightScraper, ScrapeOptions, ScrapeResult, container, Tokens } from '@nx-scraper/shared';
 import { Page } from 'playwright';
-import { logger } from '@nx-scraper/shared';
+import { logger, toApplicationError, FailurePoint } from '@nx-scraper/shared';
 
 /**
  * Universal Scraper
@@ -35,17 +35,29 @@ export class UniversalScraper extends BasePlaywrightScraper {
         // 🛡️ ANTI-BLOCKING DETECTION
         const aiEngine = container.resolve(Tokens.AIEngine);
         const html = await page.content();
-        const blockingCheck = await aiEngine.antiBlocking.execute({
-            url: page.url(),
-            html: html,
-            statusCode: 200
-        });
 
-        if (blockingCheck.data?.blockDetected) {
+        try {
+            const blockingCheck = await aiEngine.antiBlocking.execute({
+                url: page.url(),
+                html: html,
+                statusCode: 200
+            });
+
+            if (blockingCheck.data?.blockDetected) {
+                logger.warn({
+                    blockType: blockingCheck.data.blockType,
+                    confidence: blockingCheck.data.confidence
+                }, '🚫 Anti-blocking system detected potential block');
+                // Note: We log but continue - BasePlaywrightScraper will handle if severity is high
+            }
+        } catch (error: unknown) {
+            // AI anti-blocking failure should not fail the scrape
+            const appError = toApplicationError(error);
             logger.warn({
-                blockType: blockingCheck.data.blockType,
-                confidence: blockingCheck.data.confidence
-            }, '🚫 Anti-blocking system detected potential block');
+                error: appError.toJSON(),
+                url: page.url()
+            }, '⚠️ Anti-blocking check failed, continuing with extraction');
+            // Continue without anti-blocking detection
         }
 
         // Extract data

@@ -1,7 +1,7 @@
 import { Client, PlaceInputType, PlaceData, PlaceType1 } from '@googlemaps/google-maps-services-js';
 import { getAICache } from '@nx-scraper/shared';
 import { logger } from '@nx-scraper/shared';
-import { CircuitBreaker } from '@nx-scraper/shared'; // Auto-import if exported
+import { CircuitBreaker, ExternalServiceError, ConfigurationError, FailurePoint } from '@nx-scraper/shared';
 import { createHash } from 'crypto';
 import { isMainThread } from 'worker_threads';
 
@@ -105,7 +105,14 @@ export class GooglePlacesAPI {
                     logger.warn({ status: response.data.status }, '🔄 API failed, falling back to web scraping');
                     return await this.fallbackToScraper(options);
                 }
-                throw new Error(`Places API error: ${response.data.status}`);
+                throw new ExternalServiceError(
+                    'Google Places API',
+                    `Places API error: ${response.data.status}`,
+                    false, // Not retryable for permanent errors
+                    undefined,
+                    { status: response.data.status, query: options.query },
+                    FailurePoint.DATA_EXTRACTION
+                );
             }
 
             const maxResults = options.maxResults || 20;
@@ -138,7 +145,10 @@ export class GooglePlacesAPI {
      */
     async searchNearby(location: { lat: number; lng: number }, radius: number, type: string): Promise<PlaceResult[]> {
         if (!this.apiKey) {
-            throw new Error('Google Places API key not configured');
+            throw new ConfigurationError(
+                'Google Places API key not configured',
+                { location, radius, type }
+            );
         }
 
         if (this.CACHE_ENABLED && this.cache) {
@@ -163,7 +173,14 @@ export class GooglePlacesAPI {
             }));
 
             if (response.data.status !== 'OK' && response.data.status !== 'ZERO_RESULTS') {
-                throw new Error(`Places API error: ${response.data.status}`);
+                throw new ExternalServiceError(
+                    'Google Places API',
+                    `Places API nearby search error: ${response.data.status}`,
+                    this.isQuotaExceeded(response.data.status), // Retryable if quota issue
+                    undefined,
+                    { status: response.data.status, location, radius, type },
+                    FailurePoint.DATA_EXTRACTION
+                );
             }
 
             const mappedPlaces = response.data.results.map((place) => this.mapPlaceToResult(place));
@@ -188,7 +205,10 @@ export class GooglePlacesAPI {
      */
     public async getPlaceDetails(placeId: string): Promise<PlaceResult | null> {
         if (!this.apiKey) {
-            throw new Error('Google Places API key not configured');
+            throw new ConfigurationError(
+                'Google Places API key not configured',
+                { placeId }
+            );
         }
 
         if (this.CACHE_ENABLED && this.cache) {

@@ -20,21 +20,37 @@ export interface ScrapeOptions {
     description?: string; // Goal description for AI planning
 }
 
+export interface ScraperMetadata {
+    url: string;
+    timestamp: string;
+    executionTimeMs: number;
+    engine?: string;
+    proxyUsed?: string;
+    retriesAttempted?: number;
+    version?: string;
+    cached?: boolean;
+    totalResults?: number;
+    // Error visibility fields
+    errorStack?: string;
+    errorType?: string;
+    errorCode?: string | number;
+    errorName?: string;
+    failurePoint?: string;
+    // Data quality fields (Phase 5)
+    dataQuality?: 'empty' | 'partial' | 'complete';
+    fieldCount?: number;
+}
+
 export interface ScrapeResult<T = { html?: string; screenshot?: string;[key: string]: any }> {
     success: boolean;
     data?: T;
     error?: string;
-    metadata: {
-        url: string;
-        timestamp: string;
-        executionTimeMs: number;
-        engine?: string;
-        proxyUsed?: string;
-        retriesAttempted?: number;
-        version?: string;
-        cached?: boolean;
-        totalResults?: number;
-    };
+    // Enhanced error taxonomy (Phase 5)
+    errorCode?: string;
+    errorCategory?: string;
+    failurePoint?: string;
+    retryable?: boolean;
+    metadata: ScraperMetadata;
 }
 
 export interface IScraper {

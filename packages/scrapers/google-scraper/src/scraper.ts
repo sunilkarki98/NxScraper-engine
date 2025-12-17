@@ -1,6 +1,7 @@
 import { BasePlaywrightScraper, ScrapeOptions, ScrapeResult, container, Tokens } from '@nx-scraper/shared';
 import { getAICache } from '@nx-scraper/shared';
 import { logger } from '@nx-scraper/shared';
+import { BotDetectionError, TimeoutError, FailurePoint, toApplicationError, enhanceErrorContext } from '@nx-scraper/shared';
 import { createHash } from 'crypto';
 import { Page, Locator } from 'playwright';
 import selectors from './config/selectors.json' with { type: "json" };
@@ -95,7 +96,10 @@ export class GoogleScraper extends BasePlaywrightScraper {
                     logger.warn({ page: currentPage }, '⚠️ Timeout waiting for search results containers');
                     // If we have nothing, we should check for Captcha explicitly one last time
                     if (await this.detectCaptcha(page)) {
-                        throw new Error('CAPTCHA_BLOCK');
+                        throw new BotDetectionError(page.url(), {
+                            detectionMethod: 'captcha_challenge',
+                            page: currentPage
+                        });
                     }
                 }
 
@@ -126,15 +130,27 @@ export class GoogleScraper extends BasePlaywrightScraper {
                     break;
                 }
             }
-        } catch (error: any) {
-            if (error.message === 'CAPTCHA_BLOCK') {
-                logger.error('🛑 Scrape aborted due to unresolved CAPTCHA');
-                // We return what we have so far instead of failing completely? 
-                // No, per audit this is a logic failure.
-                throw error;
+        } catch (error: unknown) {
+            // Convert to ApplicationError and enhance with context
+            const appError = toApplicationError(error);
+
+            // Check if it's a bot detection error
+            if (appError.code === 'BOT_DETECTION') {
+                logger.error({ error: appError.toJSON() }, '🛑 Scrape aborted due to bot detection');
+                throw enhanceErrorContext(appError, {
+                    url: options.url,
+                    scraper: this.name,
+                    failurePoint: FailurePoint.EVASION_APPLICATION
+                });
             }
-            logger.error({ error }, '❌ Error during main scrape loop');
-            throw error;
+
+            // Enhance other errors with context
+            logger.error({ error: appError.toJSON() }, '❌ Error during main scrape loop');
+            throw enhanceErrorContext(appError, {
+                url: options.url,
+                scraper: this.name,
+                failurePoint: FailurePoint.SCRAPER_PARSE
+            });
         }
 
         // 3. Deduplicate

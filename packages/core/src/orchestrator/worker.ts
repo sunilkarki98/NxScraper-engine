@@ -42,7 +42,10 @@ export class JobWorker {
                 host: connectionUrl.hostname,
                 port: parseInt(connectionUrl.port || '6379')
             },
-            concurrency: env.WORKER_CONCURRENCY
+            concurrency: env.WORKER_CONCURRENCY,
+            lockDuration: 90000, // 90s max per job (prevents infinite hangs)
+            lockRenewTime: 30000, // Renew lock every 30s for long jobs
+            maxStalledCount: 2 // Retry stalled jobs max 2 times
         });
 
         this.worker.on('completed', (job) => {
@@ -145,9 +148,15 @@ export class JobWorker {
             }
 
             // 3. Execute scraping in a separate thread
-            logger.info(`Spawning worker for scraper: ${scraper.name}`);
+            logger.info({
+                jobId: job.id,
+                scraper: scraper.name,
+                url: job.data.url
+            }, '⚙️  Spawning worker thread for scraper');
 
             const result = await this.runInWorkerThread(metadata, job.data);
+
+            logger.info({ jobId: job.id, success: result.success }, '✅ Worker thread completed');
 
             result.metadata.executionTimeMs = Date.now() - startTime;
             result.metadata.engine = scraper.name;
@@ -171,7 +180,16 @@ export class JobWorker {
             return result;
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
-            logger.error(err, `Job ${job.id} error:`);
+
+            // CRITICAL: Log full error details for debugging
+            logger.error({
+                jobId: job.id,
+                url: job.data.url,
+                scraperType: job.data.scraperType,
+                error: err.message,
+                stack: err.stack,
+                scraper: scraper?.name || 'unknown'
+            }, '❌ JOB FAILED - See error details above');
 
             // Phase 9: Record Failure Stats
             if (scraper) {
@@ -192,7 +210,10 @@ export class JobWorker {
                 metadata: {
                     url: job.data.url,
                     timestamp: new Date().toISOString(),
-                    executionTimeMs: Date.now() - startTime
+                    executionTimeMs: Date.now() - startTime,
+                    errorStack: err.stack, // CRITICAL: Include stack trace
+                    errorName: err.name,
+                    failurePoint: scraper ? 'scraper-execution' : 'scraper-selection'
                 }
             };
         }

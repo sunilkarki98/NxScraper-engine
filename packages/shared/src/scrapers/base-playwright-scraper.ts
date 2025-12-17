@@ -5,7 +5,24 @@ import { Page } from 'playwright';
 import { container, Tokens } from '../di/container.js';
 import { IScraper, ScrapeOptions, ScrapeResult } from '../types/scraper.interface.js';
 import logger from '../utils/logger.js';
-import { activeScrapers, scrapeDurationSeconds, scrapeErrorsTopal, scrapesTotal } from '../observability/metrics.js';
+import {
+    activeScrapers,
+    scrapeDurationSeconds,
+    scrapeErrorsTotal,
+    scrapesTotal,
+    scrapeErrorsByCategory,
+    dataExtractionSuccess,
+    dataFieldsExtracted
+} from '../observability/metrics.js';
+import {
+    toApplicationError,
+    FailurePoint
+} from '../types/errors.js';
+import {
+    classifyError,
+    enhanceErrorContext,
+    logClassifiedError
+} from '../observability/error-classifier.js';
 
 /**
  * Abstract Base Class for Playwright Scrapers
@@ -102,15 +119,46 @@ export abstract class BasePlaywrightScraper implements IScraper {
                 }
             };
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             status = 'failure';
-            // Metrics: Record Error
-            scrapeErrorsTopal.inc({ scraper: this.name, error_type: error.name || 'Error' });
 
-            logger.error({ error, url: options.url, scraper: this.name }, `❌ Scrape failed`);
+            // Convert to ApplicationError for proper classification
+            const appError = toApplicationError(error);
+            const classification = classifyError(appError, FailurePoint.SCRAPER_PARSE);
+
+            // Enhance error with scraper context
+            const enhancedError = enhanceErrorContext(appError, {
+                url: options.url,
+                scraper: this.name,
+                failurePoint: classification.failurePoint
+            });
+
+            // Record comprehensive metrics
+            scrapeErrorsTotal.inc({ scraper: this.name, error_type: appError.code });
+            scrapeErrorsByCategory.inc({
+                category: classification.category,
+                scraper: this.name,
+                failure_point: classification.failurePoint
+            });
+
+            // Log with full classification
+            logClassifiedError(enhancedError, {
+                scraper: this.name,
+                url: options.url,
+                proxyUsed,
+                classification
+            });
+
+            // Record failed data extraction
+            dataExtractionSuccess.inc({ scraper: this.name, data_quality: 'empty' });
+
             return {
                 success: false,
-                error: error.message,
+                error: enhancedError.message,
+                errorCode: appError.code,
+                errorCategory: classification.category,
+                failurePoint: classification.failurePoint,
+                retryable: appError.retryable,
                 metadata: {
                     url: options.url,
                     timestamp: new Date().toISOString(),
@@ -186,7 +234,14 @@ export abstract class BasePlaywrightScraper implements IScraper {
                 timeout
             });
         } catch (error) {
-            throw new Error(`Navigation failed to ${url}: ${error}`);
+            const err = error instanceof Error ? error : new Error(String(error));
+            logger.error({
+                url,
+                timeout,
+                error: err.message,
+                stack: err.stack
+            }, '❌ Navigation failed');
+            throw new Error(`Navigation failed to ${url}: ${err.message}`);
         }
     }
 

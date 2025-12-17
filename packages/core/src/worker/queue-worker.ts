@@ -19,8 +19,24 @@ import {
     container,
     Tokens,
     ScrapeOptions,
-    ScrapeResult
+    ScrapeResult,
+    toApplicationError,
+    classifyError,
+    enhanceErrorContext,
+    logClassifiedError,
+    extractFromJob,
+    ErrorCategory,
+    FailurePoint
 } from '@nx-scraper/shared';
+import {
+    startWorkerHealthMonitoring,
+    recordJobStart,
+    recordJobComplete,
+    recordWorkerError,
+    recordStalledJob,
+    recordFailedJob,
+    WORKER_ID
+} from '../observability/worker-metrics.js';
 
 export class QueueWorker {
     private workers: Map<string, Worker> = new Map();
@@ -60,6 +76,13 @@ export class QueueWorker {
             }
         });
 
+        // Lifecycle: Job started
+        worker.on('active', (job) => {
+            recordJobStart(name, WORKER_ID);
+            logger.info({ jobId: job.id, queue: name, worker: WORKER_ID }, 'Job started processing');
+        });
+
+        // Lifecycle: Job completed
         worker.on('completed', async (job) => {
             logger.info({ jobId: job.id, queue: name }, 'Job completed');
             if (this.webhookDispatcher) {
@@ -67,38 +90,67 @@ export class QueueWorker {
             }
         });
 
+        // Lifecycle: Job failed
         worker.on('failed', async (job, err) => {
-            logger.error({ jobId: job?.id, queue: name, err }, 'Job failed');
+            logger.error({ jobId: job?.id, queue: name, err, worker: WORKER_ID }, 'Job failed');
+
+            // Classify error and record metrics
+            if (job) {
+                const appError = toApplicationError(err);
+                const classification = classifyError(appError);
+
+                recordFailedJob(name, classification.category, WORKER_ID);
+            }
+
             if (this.webhookDispatcher) {
-                await this.webhookDispatcher.dispatch('job.failed', { jobId: job?.id, queue: name, error: err.message });
+                await this.webhookDispatcher.dispatch('job.failed', {
+                    jobId: job?.id,
+                    queue: name,
+                    error: err.message
+                });
             }
         });
 
+        // Lifecycle: Job stalled
+        worker.on('stalled', (jobId) => {
+            recordStalledJob(name, WORKER_ID);
+            logger.warn({ jobId, queue: name, worker: WORKER_ID }, 'Job stalled - may have crashed or exceeded timeout');
+        });
+
         this.workers.set(name, worker);
-        logger.info(`Worker initialized: ${name}`);
+        logger.info(`Worker initialized: ${name} (ID: ${WORKER_ID})`);
+
+        // Start health monitoring on first worker initialization
+        if (this.workers.size === 1) {
+            startWorkerHealthMonitoring(WORKER_ID);
+            logger.info({ worker: WORKER_ID }, 'Worker health monitoring started');
+        }
     }
 
     /**
-     * Process Scrape Job
+     * Process Scrape Job with Full Observability
      */
     private async processScrapeJob(job: Job<JobData>) {
         this.ensureInitialized();
+        const startTime = Date.now();
         const { url, scraperType, options, traceId, metadata } = job.data;
 
-        // Setup Logging Context with Correlation ID
-        const store = new Map<string, unknown>();
-        const correlationId = (metadata as any)?.correlationId || traceId || job.id;
-
-        store.set('correlationId', correlationId);
-        store.set('requestId', traceId || job.id);
-        store.set('jobId', job.id);
-        store.set('url', url);
+        // Extract and setup tracing context from job
+        const store = extractFromJob(job.data);
 
         return contextStorage.run(store, async () => {
-            logger.info('Processing scrape job');
+            logger.info({
+                jobId: job.id,
+                attemptNumber: job.attemptsMade + 1
+            }, 'Processing scrape job');
 
             if (!url || !scraperType) {
-                throw new Error('Missing url or scraperType');
+                const error = new Error('Missing url or scraperType');
+                throw enhanceErrorContext(error, {
+                    jobId: job.id as string,
+                    failurePoint: FailurePoint.WORKER_INIT,
+                    attemptNumber: job.attemptsMade + 1
+                });
             }
 
             // Domain Rate Limiting (Phase 1 Hardening)
@@ -117,7 +169,15 @@ export class QueueWorker {
                 if (current > limit) {
                     logger.warn({ domain, current, limit }, '⚠️ Domain rate limit exceeded (throttling)');
                     // Throwing error triggers BullMQ exponential backoff (2s, 4s, 8s...)
-                    throw new Error(`Rate limit exceeded for ${domain}`);
+                    throw enhanceErrorContext(
+                        new Error(`Rate limit exceeded for ${domain}`),
+                        {
+                            jobId: job.id as string,
+                            url,
+                            failurePoint: FailurePoint.RATE_LIMIT_CHECK,
+                            attemptNumber: job.attemptsMade + 1
+                        }
+                    );
                 }
             } catch (error: unknown) {
                 // If URL parsing fails, just log and continue (or fail job if critical)
@@ -138,6 +198,9 @@ export class QueueWorker {
                 if (proxyConfig) {
                     scrapeOptions.proxy = proxyConfig.url;
                     logger.debug({ proxyId: proxyConfig.id, type }, 'Injecting proxy');
+
+                    // Add proxy to context for logging
+                    store.set('proxyId', proxyConfig.id);
                 }
             }
 
@@ -158,6 +221,10 @@ export class QueueWorker {
                     }
                 }
 
+                // Record metrics
+                const duration = Date.now() - startTime;
+                recordJobComplete('scrape-queue', result.success ? 'success' : 'failure', duration, WORKER_ID);
+
                 if (this.metricsRecorder) {
                     this.metricsRecorder.recordScrapeMetrics(
                         result.success,
@@ -169,12 +236,47 @@ export class QueueWorker {
                 return result;
 
             } catch (error: unknown) {
+                // ENHANCED ERROR HANDLING
+                const appError = toApplicationError(error);
+                const classification = classifyError(appError, FailurePoint.SCRAPER_PARSE);
+
+                // Enhance error with full context
+                const enhancedError = enhanceErrorContext(appError, {
+                    url,
+                    scraper: scraperType,
+                    jobId: job.id as string,
+                    attemptNumber: job.attemptsMade + 1,
+                    proxyId: proxyConfig?.id
+                });
+
+                // Record detailed metrics
+                recordWorkerError(
+                    classification.category,
+                    appError.code,
+                    classification.failurePoint,
+                    scraperType,
+                    WORKER_ID
+                );
+
+                // Record job completion as failure
+                const duration = Date.now() - startTime;
+                recordJobComplete('scrape-queue', 'failure', duration, WORKER_ID);
+
+                // Log with classification
+                logClassifiedError(enhancedError, {
+                    jobId: job.id,
+                    classification,
+                    attemptNumber: job.attemptsMade + 1
+                });
+
                 // Report Proxy Failure on critical error
                 if (proxyConfig) {
-                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    const errorMsg = enhancedError.message;
                     proxyManager.reportFailure(proxyConfig.id, errorMsg);
                 }
-                throw error;
+
+                // Re-throw enhanced error for BullMQ retry logic
+                throw enhancedError;
             }
         }).then(async (result) => {
             // AI Bridge Implementation
@@ -225,13 +327,23 @@ export class QueueWorker {
                         ai: aiResult
                     };
                 } catch (aiError: unknown) {
-                    logger.error({ error: aiError, jobId: job.id }, 'AI Processing Failed');
+                    const appError = toApplicationError(aiError);
+                    const classification = classifyError(appError, FailurePoint.AI_PROCESSING);
+
+                    logger.error({
+                        error: appError.toJSON(),
+                        classification,
+                        jobId: job.id
+                    }, 'AI Processing Failed');
+
                     // We don't fail the whole job if AI fails, we just return scrape data with AI error
                     return {
                         ...result,
                         ai: {
                             success: false,
-                            error: aiError instanceof Error ? aiError.message : 'Unknown error'
+                            error: appError.message,
+                            errorCode: appError.code,
+                            category: classification.category
                         }
                     };
                 }

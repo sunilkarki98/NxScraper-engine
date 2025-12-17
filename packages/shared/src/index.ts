@@ -56,6 +56,8 @@ export * from './services/grid.service.js';
 export * from './services/scraper-intelligence.js';
 export * from './observability/system-monitor.js';
 export * from './observability/metrics.js';
+export * from './observability/error-classifier.js';
+export * from './observability/tracing-context.js';
 
 // Types
 export * from './types/api-key.interface.js';
