@@ -69,6 +69,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-NxScraper}
     ports:
       - "3000:3000"
     depends_on:
@@ -103,7 +107,7 @@ services:
       dockerfile: packages/core/Dockerfile
       target: worker
     image: nxscraper-worker:prod
-
+    container_name: scrapex-worker
     restart: always
     env_file:
       - .env
@@ -115,12 +119,22 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-NxScraper}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
     tmpfs:
       - /dev/shm:size=1G
     depends_on:
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'node.*index.js' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     networks:
       - backend
     deploy:
